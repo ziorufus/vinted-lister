@@ -11,7 +11,7 @@ from typing import Optional
 from .client import VintedClient
 
 ROOT = Path(__file__).resolve().parent.parent
-LOOKUP = ROOT / "data" / "catalog_lookup_se.json"
+DATA = ROOT / "data"
 
 # Confirmed condition ids (dynamic item_attribute "condition").
 CONDITION_IDS = {
@@ -43,8 +43,18 @@ class Resolver:
     # ----- catalog ---------------------------------------------------------
     @property
     def lookup(self) -> dict:
+        """Display-only id -> path cache. Resolution itself is live (the API
+        search endpoint); this just labels ids for humans. Picks the cache for
+        the client's market (catalog_lookup_<domain>.json) and falls back to the
+        bundled SE cache, then to empty. Refresh/localize via tools/fetch_catalogs.py.
+        """
         if self._lookup is None:
-            self._lookup = json.loads(LOOKUP.read_text(encoding="utf-8")) if LOOKUP.exists() else {}
+            domain = getattr(self.c, "domain", "se")
+            self._lookup = {}
+            for path in (DATA / f"catalog_lookup_{domain}.json", DATA / "catalog_lookup_se.json"):
+                if path.exists():
+                    self._lookup = json.loads(path.read_text(encoding="utf-8"))
+                    break
         return self._lookup
 
     def catalog_path(self, cid) -> str:

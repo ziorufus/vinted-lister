@@ -76,14 +76,36 @@ vinted draft --photo inbox/IMG_0001.jpg --photo inbox/IMG_0002.jpg \
 # Manage your existing live ads (read from the account, not a local file):
 vinted ads                         # list your live listings
 vinted item 9226208711             # show one ad (id or full URL)
-vinted edit 9226208711 --description "new, more sales-y text"
+
+# Edit one or many fields in a single call (only the fields you pass change;
+# photos are preserved):
+vinted edit 9226208711 \
+  --price 300 \
+  --description "new, more sales-y text" \
+  --category "enfärgade skjortor"
+
 vinted reprice --brand "Ralph Lauren" --from 350 --to 300 --dry-run
 ```
 
 The agent works in **any language** — tell it which language to write titles and
 descriptions in.
 
-## Folder structure
+### Categories, brands, colours & sizes are resolved live
+
+You never hardcode IDs. `--category`, `--brand`, `--size`, `--color` accept plain
+keywords and are looked up against Vinted's **live** API at call time
+(`item_upload/catalogs/search`, `/brands`, `/colors`, `/size_groups`), so new or
+renamed categories just work. Vinted catalog **IDs are numeric and global** — the
+same across markets — so you can always pass an ID directly.
+
+The files in `data/` (`catalog_lookup_<domain>.json`) are only a **display cache**
+that labels an ID with its human path (e.g. `Herr > Skjortor > Enfärgade`); they are
+not the source of truth. To refresh them or build a cache for another market
+(e.g. English `vinted.co.uk`), set `VINTED_DOMAIN` in `.env` and run:
+
+```bash
+python tools/fetch_catalogs.py   # writes data/catalog_lookup_<domain>.json
+```
 
 ```
 inbox/    you dump raw product photos here (unsorted)

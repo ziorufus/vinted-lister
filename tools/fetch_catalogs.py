@@ -69,13 +69,13 @@ def main() -> None:
     data = r.json()
     catalogs = data.get("catalogs", [])
 
-    (DATA / "catalogs_se.json").write_text(
+    (DATA / f"catalogs_{DOMAIN}.json").write_text(
         json.dumps(catalogs, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     lookup: dict[str, dict] = {}
     flatten(catalogs, [], lookup)
-    (DATA / "catalog_lookup_se.json").write_text(
+    (DATA / f"catalog_lookup_{DOMAIN}.json").write_text(
         json.dumps(lookup, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
