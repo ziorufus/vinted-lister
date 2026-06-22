@@ -1,0 +1,16 @@
+[project]
+name = "vinted-auto-lister"
+version = "0.1.0"
+description = "Create Vinted draft listings from product photos."
+requires-python = ">=3.9"
+dependencies = ["curl_cffi>=0.7", "requests>=2.31", "pillow>=10"]
+
+[project.scripts]
+vinted = "vinted.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["vinted"]

@@ -1,0 +1,57 @@
+{
+  "_comment": "Captured real Vinted SE draft save (2026-06-21). Blueprint for create_draft(). Secret header values are placeholders.",
+  "create_endpoint": "POST https://www.vinted.se/api/v2/item_upload/drafts",
+  "update_endpoint": "PUT https://www.vinted.se/api/v2/item_upload/drafts/{draft_id}",
+  "headers": {
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "X-Enable-Dynamic-Attribute-Condition": "true",
+    "X-Enable-Dynamic-Attribute-Video-Game-Rating": "true",
+    "X-Enable-Dynamic-Attribute-Size": "true",
+    "X-Anon-Id": "<anon_id>",
+    "Locale": "sv-SE",
+    "X-CSRF-Token": "<csrf_token>"
+  },
+  "body_template": {
+    "draft": {
+      "currency": "SEK",
+      "temp_uuid": "<upload_session_uuid>",
+      "title": "<title>",
+      "description": "<description>",
+      "brand_id": 94,
+      "brand": "Tommy Hilfiger",
+      "catalog_id": 1801,
+      "isbn": null,
+      "is_unisex": false,
+      "ai_photo": false,
+      "price": 150,
+      "package_size_id": 1,
+      "shipment_prices": { "domestic": null, "international": null },
+      "color_ids": [15],
+      "assigned_photos": [
+        { "id": "<photo_id_from_/photos>", "orientation": 0 }
+      ],
+      "measurement_length": null,
+      "measurement_width": null,
+      "item_attributes": [
+        { "code": "material", "ids": [44] },
+        { "code": "condition", "ids": [1] },
+        { "code": "size", "ids": [209] }
+      ],
+      "manufacturer": null,
+      "manufacturer_labelling": null
+    },
+    "feedback_id": null,
+    "parcel": null,
+    "upload_session_id": "<same as draft.temp_uuid>"
+  },
+  "decoded_ids_for_this_item": {
+    "catalog_id 1801": "Herr > Kläder > Toppar och t-shirtar > Skjortor > Rutiga skjortor",
+    "brand_id 94": "Tommy Hilfiger",
+    "color_ids [15]": "Multi",
+    "package_size_id 1": "Liten (Small)",
+    "item_attributes.material 44": "Bomull (Cotton)",
+    "item_attributes.condition 1": "Ny utan prislapp (New without tags)",
+    "item_attributes.size 209": "L"
+  }
+}

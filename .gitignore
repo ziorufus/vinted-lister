@@ -1,0 +1,35 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+.secrets/
+*.token
+
+# Personal images & generated listing log — never commit
+# (folders + their README stay tracked so the repo works out of the box)
+inbox/*
+posted/*
+review/*
+!inbox/README.md
+!posted/README.md
+!review/README.md
+LISTINGS.md
+
+# Source photos (camera originals)
+*.HEIC
+*.heic
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Temp / OS
+.preview/
+.playwright-mcp/
+.DS_Store
+**/.DS_Store
