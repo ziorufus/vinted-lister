@@ -1,5 +1,7 @@
 # Vinted Auto-Lister
 
+![Vinted Auto-Lister — drop photos, an AI agent turns them into Vinted listings](docs/banner.png)
+
 Drop product photos into a folder and let an AI coding agent (e.g. GitHub Copilot)
 analyse them, research prices, and create **draft** listings on Vinted for you —
 then move the processed photos aside and log every listing in `LISTINGS.md`.
