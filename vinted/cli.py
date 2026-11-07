@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .client import VintedClient
 from .lister import create_listing
+from .config import load_market
 from .resolve import CONDITION_IDS, Resolver
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,7 +55,15 @@ def cmd_whoami(_a) -> None:
 
 
 def cmd_catalogs(a) -> None:
-    for cid, path in Resolver(_client()).search_catalogs(a.keyword):
+    rv = Resolver(_client())
+    if not a.keyword:
+        rows = rv.catalog_aliases()
+        if not rows:
+            print("no catalog_aliases configured for this market (config/markets.json)")
+        for alias, cid, path in rows:
+            print(f"{cid}\t{alias}\t{path}")
+        return
+    for cid, path in rv.search_catalogs(a.keyword):
         print(f"{cid}\t{path}")
 
 
@@ -74,22 +83,25 @@ def cmd_colors(_a) -> None:
 
 def cmd_sizes(a) -> None:
     c = _client()
+    group = None if a.all else (a.group if a.group is not None else c.market.default_size_group)
     r = c.get(f"{c.base}/size_groups", timeout=30)
     for g in r.json().get("size_groups", []):
-        if a.group is None or g.get("id") == a.group:
+        if group is None or g.get("id") == group:
             print(f"# group {g.get('id')} — {g.get('caption')}")
             for s in g.get("sizes", []):
                 print(f"{s.get('id')}\t{s.get('title')}")
-            if a.group is not None:
+            if group is not None:
                 break
 
 
 def cmd_conditions(_a) -> None:
-    print("6\tNew with tags / Nytt med prislapp")
-    print("1\tNew without tags / Ny utan prislapp")
-    print("2\tVery good / Mycket bra")
-    print("3\tGood / Bra")
-    print("4\tSatisfactory / Tillfredsställande")
+    try:
+        aliases = load_market().condition_aliases
+    except Exception:  # noqa: BLE001
+        aliases = {}
+    for name, cid in CONDITION_IDS.items():
+        local = [k for k, v in aliases.items() if v == cid]
+        print(f"{cid}\t{name}" + (f"\t({', '.join(local)})" if local else ""))
 
 
 def cmd_price(a) -> None:
@@ -102,8 +114,9 @@ def cmd_price(a) -> None:
     ps = c.pricing_suggestion(image_id).get("price_suggestion", {})
     if ps:
         print(f"band: {ps['minimum']['amount']}–{ps['maximum']['amount']} "
-              f"(mid {ps['midpoint']['amount']}) {ps.get('currency','SEK')}")
-        print(f"resolved price: {resolve_price(a.brand, {'price_suggestion': ps})}")
+              f"(mid {ps['midpoint']['amount']}) {ps.get('currency') or c.market.currency}")
+        price = resolve_price(a.brand, {'price_suggestion': ps}, c.market.brand_prices)
+        print(f"resolved price: {c.market.format_price(price)}")
 
 
 def cmd_draft(a) -> None:
@@ -125,6 +138,7 @@ def cmd_draft(a) -> None:
             "size_id": rv.size_id(a.size) if a.size else None,
             "condition_id": rv.condition_id(a.condition) if a.condition else 2,
             "material_ids": rv.material_ids(a.material),
+            "isbn": a.isbn,
             "price": a.price,
             "package_size_id": a.package_size,
             "n": a.n,
@@ -141,7 +155,7 @@ def cmd_draft(a) -> None:
             print(f"brand -> {brand_id} ({brand_title})")
 
     result = create_listing(spec, client=c, organize=not a.no_move, log=not a.no_log)
-    print(f"OK draft {result['draft_id']} | {result['price']} kr | "
+    print(f"OK draft {result['draft_id']} | {c.market.format_price(result['price'])} | "
           f"{result['photos']} photos" + (f" -> {result['moved_to']}" if result['moved_to'] else ""))
     print(result["edit_url"])
 
@@ -187,7 +201,7 @@ def cmd_auth_import(a) -> None:
         if raw.strip():
             print("Read 'Copy as cURL' from your clipboard.")
     if not raw.strip():
-        print("Paste the DevTools 'Copy as cURL' of a vinted.se /api/v2 request, then press Ctrl-D:")
+        print("Paste the DevTools 'Copy as cURL' of a vinted /api/v2 request, then press Ctrl-D:")
         raw = sys.stdin.read()
 
     def header(name: str) -> str:
@@ -248,7 +262,7 @@ def cmd_ads(a) -> None:
             continue
         if a.price is not None and pr != a.price:
             continue
-        print(f"{it.get('id')}\t{int(pr)} kr\t{b}\t{(it.get('title') or '')[:48]}")
+        print(f"{it.get('id')}\t{c.market.format_price(pr)}\t{b}\t{(it.get('title') or '')[:48]}")
 
 
 def cmd_reprice(a) -> None:
@@ -261,14 +275,14 @@ def cmd_reprice(a) -> None:
             targets.append(it)
     print(f"{len(targets)} match(es): brand~'{a.brand}' price={a.from_price} -> {a.to_price}")
     for it in targets:
-        print(f"  {it.get('id')}  {_ad_brand(it)}  {int(_ad_price(it))} kr  {(it.get('title') or '')[:40]}")
+        print(f"  {it.get('id')}  {_ad_brand(it)}  {c.market.format_price(_ad_price(it))}  {(it.get('title') or '')[:40]}")
     if a.dry_run:
         print("dry-run: nothing changed.")
         return
     for it in targets:
         try:
             c.update_price(it["id"], a.to_price)
-            print(f"  updated {it['id']} -> {int(a.to_price)} kr")
+            print(f"  updated {it['id']} -> {c.market.format_price(a.to_price)}")
         except Exception as e:  # noqa: BLE001
             print(f"  FAILED {it['id']}: {e}")
 
@@ -323,13 +337,16 @@ def cmd_edit(a) -> None:
         changes["color_ids"] = [x for x in (rv.color_id(v) for v in a.color) if x]
     if a.material:
         changes["material_ids"] = rv.material_ids(a.material)
+    if a.isbn is not None:
+        from .lister import normalize_isbn
+        changes["isbn"] = normalize_isbn(a.isbn)
     if a.package_size is not None:
         changes["package_size_id"] = a.package_size
     if not changes:
         sys.exit("nothing to change; pass --title/--description/--price/--brand/...")
     c.update_item(iid, changes)
     print(f"OK updated {iid}: {', '.join(changes)}")
-    print(f"https://www.vinted.se/items/{iid}/edit")
+    print(c.market.item_url(iid, edit=True))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -338,10 +355,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("whoami").set_defaults(func=cmd_whoami)
 
-    sp = sub.add_parser("catalogs", help="search categories"); sp.add_argument("keyword"); sp.set_defaults(func=cmd_catalogs)
+    sp = sub.add_parser("catalogs", help="search categories (no keyword: list configured aliases)")
+    sp.add_argument("keyword", nargs="?"); sp.set_defaults(func=cmd_catalogs)
     sp = sub.add_parser("brands", help="search brands"); sp.add_argument("keyword"); sp.add_argument("--limit", type=int, default=10); sp.set_defaults(func=cmd_brands)
     sub.add_parser("colors", help="list colours").set_defaults(func=cmd_colors)
-    sp = sub.add_parser("sizes", help="list sizes"); sp.add_argument("--group", type=int, default=14, nargs="?"); sp.set_defaults(func=cmd_sizes)
+    sp = sub.add_parser("sizes", help="list sizes (default: the market's default_size_group)")
+    sp.add_argument("--group", type=int, help="size group id")
+    sp.add_argument("--all", action="store_true", help="list every size group")
+    sp.set_defaults(func=cmd_sizes)
     sub.add_parser("conditions", help="list condition ids").set_defaults(func=cmd_conditions)
 
     sp = sub.add_parser("price", help="image-based price suggestion")
@@ -357,6 +378,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--color", action="append", default=[], help="colour id or name (repeatable)")
     sp.add_argument("--material", action="append", default=[], help="material id or name (repeatable)")
     sp.add_argument("--price", type=float)
+    sp.add_argument("--isbn", help="ISBN-10/13 (books); hyphens/spaces are stripped")
     sp.add_argument("--package-size", type=int, default=1)
     sp.add_argument("--product", help="short product label for the log")
     sp.add_argument("--n", type=int, help="product number (for posted/NN-slug + log)")
@@ -379,11 +401,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_reprice)
 
     sp = sub.add_parser("item", help="show an item's current data (by id or URL)")
-    sp.add_argument("ref", help="item id or vinted.se URL")
+    sp.add_argument("ref", help="item id or vinted item URL")
     sp.set_defaults(func=cmd_item)
 
     sp = sub.add_parser("edit", help="edit any field of an item (by id or URL)")
-    sp.add_argument("ref", help="item id or vinted.se URL")
+    sp.add_argument("ref", help="item id or vinted item URL")
     sp.add_argument("--title")
     sp.add_argument("--description")
     sp.add_argument("--price", type=float)
@@ -393,6 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--condition")
     sp.add_argument("--color", action="append", default=[])
     sp.add_argument("--material", action="append", default=[])
+    sp.add_argument("--isbn")
     sp.add_argument("--package-size", type=int)
     sp.set_defaults(func=cmd_edit)
 

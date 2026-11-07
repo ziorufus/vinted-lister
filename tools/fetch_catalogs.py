@@ -1,50 +1,26 @@
-"""Fetch the full Vinted SE catalog tree and build an id -> path lookup.
+"""Fetch the full Vinted catalog tree for the configured market and build an
+id -> path lookup (display cache only; resolution itself is live).
 
-Saves the raw tree to data/catalogs_se.json and a flat lookup to
-data/catalog_lookup_se.json so the agent can resolve catalog_id -> name/path
-without calling the API every time.
+Uses VINTED_DOMAIN and the market's locale (config/markets.json), so labels
+come out in that market's language. Writes:
+  data/catalogs_<domain>.json        raw tree
+  data/catalog_lookup_<domain>.json  flat id -> {title, path, code}
+
+Run:  .venv/bin/python tools/fetch_catalogs.py
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-import requests
-
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from vinted.client import VintedClient  # noqa: E402
+
 DATA = ROOT / "data"
-DATA.mkdir(exist_ok=True)
-
-
-def load_env() -> dict[str, str]:
-    env: dict[str, str] = {}
-    for line in (ROOT / ".env").read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        env[k.strip()] = v.strip()
-    return env
-
-
-ENV = load_env()
-DOMAIN = ENV.get("VINTED_DOMAIN", "se")
-BASE = f"https://www.vinted.{DOMAIN}/api/v2"
-ACCESS = ENV["VINTED_ACCESS_TOKEN_WEB"]
-
-session = requests.Session()
-session.headers.update(
-    {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Authorization": f"Bearer {ACCESS}",
-        "X-Requested-With": "XMLHttpRequest",
-    }
-)
 
 
 def flatten(nodes: list[dict], parents: list[str], out: dict[str, dict]) -> None:
@@ -64,31 +40,28 @@ def flatten(nodes: list[dict], parents: list[str], out: dict[str, dict]) -> None
 
 
 def main() -> None:
-    r = session.get(f"{BASE}/item_upload/catalogs", timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    catalogs = data.get("catalogs", [])
+    client = VintedClient()
+    domain = client.domain
+    r = client.get(f"{client.base}/item_upload/catalogs", timeout=30)
+    if r.status_code != 200:
+        sys.exit(f"catalogs -> {r.status_code}: {r.text[:200]}\n"
+                 "Re-import tokens with `vinted auth import`.")
+    catalogs = r.json().get("catalogs", [])
 
-    (DATA / f"catalogs_{DOMAIN}.json").write_text(
+    DATA.mkdir(exist_ok=True)
+    (DATA / f"catalogs_{domain}.json").write_text(
         json.dumps(catalogs, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-
     lookup: dict[str, dict] = {}
     flatten(catalogs, [], lookup)
-    (DATA / f"catalog_lookup_{DOMAIN}.json").write_text(
+    (DATA / f"catalog_lookup_{domain}.json").write_text(
         json.dumps(lookup, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
+    print(f"Market: vinted.{domain} ({client.market.locale})")
     print(f"Top-level roots: {[c.get('title') for c in catalogs]}")
     print(f"Total categories flattened: {len(lookup)}")
-
-    print("\nResolving the shirt catalog_ids from catalogs/search?keyword=skjorta:")
-    for cid in [1537, 1664, 222, 1865, 1801, 1805, 1803, 1804, 1802, 1665, 2914, 1666, 1540]:
-        entry = lookup.get(str(cid))
-        if entry:
-            print(f"  {cid:>5}  ->  {entry['path']}")
-        else:
-            print(f"  {cid:>5}  ->  (not found in tree)")
+    print(f"Wrote data/catalogs_{domain}.json and data/catalog_lookup_{domain}.json")
 
 
 if __name__ == "__main__":

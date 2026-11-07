@@ -33,3 +33,6 @@ dist/
 .playwright-mcp/
 .DS_Store
 **/.DS_Store
+
+.vscode
+

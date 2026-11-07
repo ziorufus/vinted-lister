@@ -101,7 +101,7 @@ same across markets — so you can always pass an ID directly.
 The files in `data/` (`catalog_lookup_<domain>.json`) are only a **display cache**
 that labels an ID with its human path (e.g. `Herr > Skjortor > Enfärgade`); they are
 not the source of truth. To refresh them or build a cache for another market
-(e.g. English `vinted.co.uk`), set `VINTED_DOMAIN` in `.env` and run:
+(e.g. Italian `vinted.it`), set `VINTED_DOMAIN` in `.env` and run:
 
 ```bash
 python tools/fetch_catalogs.py   # writes data/catalog_lookup_<domain>.json
@@ -117,10 +117,31 @@ tools/    one-off and helper scripts
 LISTINGS.md  log of every draft created
 ```
 
+## Markets (country settings)
+
+Everything country-specific lives in [`config/markets.json`](config/markets.json),
+one entry per Vinted domain, selected by `VINTED_DOMAIN` in `.env`:
+
+| key | meaning |
+|---|---|
+| `currency` | currency code sent with drafts/edits (`EUR`, `SEK`, …) |
+| `locale`, `accept_language` | request headers; they set the language of API labels |
+| `price_format` | how prices are printed and logged, e.g. `"{amount} €"` |
+| `preferred_catalog_root` | when a category keyword matches several catalogs, prefer paths containing this (e.g. `"Herr"`); `null` keeps Vinted's order |
+| `default_size_group` | size group for `--size L` and `vinted sizes` (14 = men's tops) |
+| `condition_aliases`, `material_aliases` | local names → global ids (`"ottime condizioni": 2`) |
+| `brand_prices` | fixed price per brand, in that market's currency |
+
+`se` (Sweden) and `it` (Italy) are included. To add a market, copy an entry under
+the new domain key (e.g. `"fr"`) — no Python changes. Single values can also be
+overridden from `.env` (`VINTED_CURRENCY`, `VINTED_LOCALE`, `VINTED_ACCEPT_LANGUAGE`,
+`VINTED_PRICE_FORMAT`, `VINTED_PREFERRED_CATALOG_ROOT`, `VINTED_SIZE_GROUP`).
+
 ## Pricing
 
-Brand rules live in `vinted/pricing.py` (`BRAND_PRICE`). Brands without a rule
-fall back to Vinted's **premium** price suggestion. Edit the map to your own prices.
+Brand rules live in `config/markets.json` (`brand_prices` of your market). Brands
+without a rule fall back to Vinted's **premium** price suggestion. An explicit
+`--price` always wins.
 
 ## Security
 

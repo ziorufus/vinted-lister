@@ -13,17 +13,19 @@ from .client import VintedClient
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 
-# Confirmed condition ids (dynamic item_attribute "condition").
+# Condition ids are global (dynamic item_attribute "condition"). These English
+# keys work in every market; local names come from config/markets.json
+# (`condition_aliases`).
 CONDITION_IDS = {
-    "new_with_tags": 6, "ny med prislapp": 6, "nytt med prislapp": 6,
-    "new_without_tags": 1, "ny utan prislapp": 1, "nytt utan prislapp": 1,
-    "very_good": 2, "mycket bra": 2,
-    "good": 3, "bra": 3,
-    "satisfactory": 4, "tillfredsstallande": 4, "tillfredsställande": 4,
+    "new_with_tags": 6,
+    "new_without_tags": 1,
+    "very_good": 2,
+    "good": 3,
+    "satisfactory": 4,
 }
 
-# Confirmed materials (extend as you discover more ids).
-MATERIAL_IDS = {"cotton": 44, "bomull": 44}
+# Confirmed materials (English); local names: `material_aliases` in markets.json.
+MATERIAL_IDS = {"cotton": 44}
 
 
 def _as_int(v) -> Optional[int]:
@@ -36,6 +38,9 @@ def _as_int(v) -> Optional[int]:
 class Resolver:
     def __init__(self, client: VintedClient) -> None:
         self.c = client
+        self.market = client.market
+        self._conditions = {**CONDITION_IDS, **self.market.condition_aliases}
+        self._materials = {**MATERIAL_IDS, **self.market.material_aliases}
         self._colors: Optional[dict[str, int]] = None
         self._sizes: dict[int, dict[str, int]] = {}
         self._lookup: Optional[dict] = None
@@ -68,15 +73,23 @@ class Resolver:
         ids = r.json().get("catalog_ids", []) if r.status_code == 200 else []
         return [(i, self.catalog_path(i)) for i in ids]
 
+    def catalog_aliases(self) -> list[tuple[str, int, str]]:
+        """Configured (alias, id, path) from markets.json `catalog_aliases`."""
+        return [(k, v, self.catalog_path(v)) for k, v in self.market.catalog_aliases.items()]
+
     def catalog(self, value: str) -> tuple[Optional[int], str]:
         cid = _as_int(value)
+        if cid is None:
+            cid = self.market.catalog_aliases.get(str(value).strip().lower())
         if cid is not None:
             return cid, self.catalog_path(cid)
         hits = self.search_catalogs(value)
         if not hits:
             return None, "?"
-        # prefer men's (Herr) results
-        hits.sort(key=lambda h: (0 if "Herr" in h[1] else 1))
+        # optionally prefer one root (e.g. men's), configured per market
+        pref = self.market.preferred_catalog_root
+        if pref:
+            hits.sort(key=lambda h: (0 if pref in h[1] else 1))
         return hits[0]
 
     # ----- colours ---------------------------------------------------------
@@ -96,7 +109,8 @@ class Resolver:
         return cid if cid is not None else self.colors().get(str(value).lower())
 
     # ----- sizes -----------------------------------------------------------
-    def sizes(self, group: int = 14) -> dict[str, int]:
+    def sizes(self, group: Optional[int] = None) -> dict[str, int]:
+        group = group if group is not None else self.market.default_size_group
         if group not in self._sizes:
             r = self.c.get(f"{self.c.base}/size_groups", timeout=30)
             table: dict[str, int] = {}
@@ -107,23 +121,21 @@ class Resolver:
             self._sizes[group] = table
         return self._sizes[group]
 
-    def size_id(self, value: str, group: int = 14) -> Optional[int]:
+    def size_id(self, value: str, group: Optional[int] = None) -> Optional[int]:
         sid = _as_int(value)
         return sid if sid is not None else self.sizes(group).get(str(value).lower())
 
     # ----- condition / material -------------------------------------------
-    @staticmethod
-    def condition_id(value: str) -> Optional[int]:
+    def condition_id(self, value: str) -> Optional[int]:
         cid = _as_int(value)
-        return cid if cid is not None else CONDITION_IDS.get(str(value).lower())
+        return cid if cid is not None else self._conditions.get(str(value).strip().lower())
 
-    @staticmethod
-    def material_ids(values) -> list[int]:
+    def material_ids(self, values) -> list[int]:
         out: list[int] = []
         for v in values or []:
             mid = _as_int(v)
             if mid is None:
-                mid = MATERIAL_IDS.get(str(v).lower())
+                mid = self._materials.get(str(v).strip().lower())
             if mid is not None:
                 out.append(mid)
         return out

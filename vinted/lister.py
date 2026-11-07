@@ -7,6 +7,7 @@ into posted/NN-slug/ and appends a row to LISTINGS.md.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any, Optional
 
 from .client import VintedClient, build_draft, new_session_id
@@ -23,6 +24,14 @@ _HEADER = (
     "| # | Product | Brand | Size | Condition | Colour | Price | Photos | Draft | Status |\n"
     "|---|---------|-------|------|-----------|--------|-------|--------|-------|--------|\n"
 )
+
+
+def normalize_isbn(value: Optional[str]) -> Optional[str]:
+    """'978-88-06-21935-2' -> '9788806219352'. Keeps a trailing X (ISBN-10)."""
+    if not value:
+        return None
+    s = re.sub(r"[^0-9Xx]", "", str(value)).upper()
+    return s or None
 
 
 def _resolve_file(name: str) -> Path:
@@ -55,7 +64,7 @@ def create_listing(
     price = spec.get("price")
     if price is None:
         suggestion = client.pricing_suggestion(first_image_id) if first_image_id else None
-        price = resolve_price(spec.get("brand"), suggestion) or 0
+        price = resolve_price(spec.get("brand"), suggestion, client.market.brand_prices) or 0
 
     draft = build_draft(
         temp_uuid=sid,
@@ -66,16 +75,19 @@ def create_listing(
         brand=spec.get("brand"),
         price=price,
         package_size_id=spec.get("package_size_id", 1),
+        currency=client.market.currency,
         color_ids=spec.get("color_ids", []),
         photo_ids=photo_ids,
         condition_id=spec.get("condition_id"),
         size_id=spec.get("size_id"),
         material_ids=spec.get("material_ids"),
+        isbn=normalize_isbn(spec.get("isbn")),
     )
     res = client.create_draft(draft, sid)
     item = res.get("draft") or res.get("item") or res
     draft_id = item.get("id") if isinstance(item, dict) else None
 
+    edit_url = client.market.item_url(draft_id, edit=True)
     moved_to = None
     if organize and spec.get("n") is not None and spec.get("slug"):
         dest = POSTED / f"{int(spec['n']):02d}-{spec['slug']}"
@@ -95,10 +107,10 @@ def create_listing(
         n = spec.get("n")
         num = f"{int(n):02d}" if n is not None else "--"
         row = (
-            f"| {num} | {lab.get('product','')} | {spec.get('brand','')} | "
+            f"| {num} | {lab.get('product','')} | {spec.get('brand') or ''} | "
             f"{lab.get('size','')} | {lab.get('condition','')} | {lab.get('colour','')} | "
-            f"{price} kr | {len(photo_ids)} | "
-            f"[{draft_id}](https://www.vinted.se/items/{draft_id}/edit) | draft |\n"
+            f"{client.market.format_price(price)} | {len(photo_ids)} | "
+            f"[{draft_id}]({edit_url}) | draft |\n"
         )
         with LISTINGS.open("a", encoding="utf-8") as fh:
             fh.write(row)
@@ -108,5 +120,5 @@ def create_listing(
         "price": price,
         "photos": len(photo_ids),
         "moved_to": moved_to,
-        "edit_url": f"https://www.vinted.se/items/{draft_id}/edit",
+        "edit_url": edit_url,
     }

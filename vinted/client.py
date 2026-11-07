@@ -1,4 +1,4 @@
-"""Vinted SE client — authenticated reads + writes from pure Python.
+"""Vinted client — authenticated reads + writes from pure Python.
 
 Auth recipe (reverse-engineered 2026-06-21): cookies (access_token_web,
 refresh_token_web, _vinted_fr_session, datadome, anon_id) + headers
@@ -18,7 +18,7 @@ from typing import Any, Optional
 from curl_cffi import CurlMime
 from curl_cffi import requests as cffi
 
-from .config import load_env, update_env
+from .config import Market, load_env, load_market, update_env
 
 
 class VintedError(RuntimeError):
@@ -26,12 +26,15 @@ class VintedError(RuntimeError):
 
 
 class VintedClient:
-    def __init__(self, env: Optional[dict[str, str]] = None) -> None:
+    def __init__(
+        self, env: Optional[dict[str, str]] = None, market: Optional[Market] = None
+    ) -> None:
         env = env or load_env()
         self.env = env
-        self.domain = env.get("VINTED_DOMAIN", "se")
-        self.host = f"www.vinted.{self.domain}"
-        self.base = f"https://{self.host}/api/v2"
+        self.market = market or load_market(env)
+        self.domain = self.market.domain
+        self.host = self.market.host
+        self.base = self.market.base_url
 
         self.anon = env.get("VINTED_ANON_ID") or env.get("VINTED_COOKIE_ANON_ID", "")
         self.csrf = env.get("VINTED_CSRF_TOKEN", "")
@@ -47,11 +50,11 @@ class VintedClient:
 
         headers = {
             "accept": "application/json, text/plain, */*",
-            "accept-language": "sv-SE,sv;q=0.9",
+            "accept-language": self.market.accept_language,
             "authorization": f"Bearer {env.get('VINTED_ACCESS_TOKEN_WEB', '')}",
             "x-csrf-token": self.csrf,
             "x-anon-id": self.anon,
-            "locale": "sv-SE",
+            "locale": self.market.locale,
             "origin": f"https://{self.host}",
             "referer": f"https://{self.host}/items/new",
         }
@@ -272,7 +275,7 @@ class VintedClient:
         sid = str(uuid.uuid4())
         draft = {
             "id": it.get("id"),
-            "currency": it.get("currency", "SEK"),
+            "currency": it.get("currency") or self.market.currency,
             "temp_uuid": sid,
             "title": it.get("title", ""),
             "description": it.get("description", ""),
@@ -349,7 +352,8 @@ def build_draft(
     condition_id: Optional[int] = None,
     size_id: Optional[int] = None,
     material_ids: Optional[list[int]] = None,
-    currency: str = "SEK",
+    isbn: Optional[str] = None,
+    currency: str,
     is_unisex: bool = False,
     draft_id: Optional[int] = None,
 ) -> dict[str, Any]:
@@ -375,7 +379,7 @@ def build_draft(
         "brand_id": brand_id,
         "brand": brand,
         "catalog_id": catalog_id,
-        "isbn": None,
+        "isbn": isbn or None,
         "is_unisex": is_unisex,
         "ai_photo": False,
         "price": price,

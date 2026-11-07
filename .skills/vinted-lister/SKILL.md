@@ -92,7 +92,7 @@ genuine orphans in `review/`.
   3 Good, 4 Satisfactory. Material e.g. Cotton=44. Package size 1 = Small.
 
 ### 5. Price
-Brand rules live in `vinted/pricing.py` (`BRAND_PRICE`). Brands without a rule →
+Brand rules live in `config/markets.json` (`brand_prices` of the active market). Brands without a rule →
 Vinted's **premium** suggestion (max of the band). Edit the map per the owner.
 
 ### 6. Post
@@ -128,7 +128,7 @@ vinted auth import [--curl|--file] paste a DevTools cURL -> writes tokens to .en
 vinted catalogs <keyword>          search categories (id + full path)
 vinted brands <keyword>            search brands (id + title)
 vinted colors                      list colour ids
-vinted sizes [--group N]           list size ids (men's letters = group 14)
+vinted sizes [--group N | --all]   list size ids (default: market's default_size_group)
 vinted conditions                  list condition ids
 vinted price <image> [--brand]     image-based price band + resolved price
 vinted draft ...                   create a draft (flags or --json)

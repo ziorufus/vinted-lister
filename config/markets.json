@@ -1,0 +1,95 @@
+{
+  "_comment": [
+    "Per-market settings, selected by VINTED_DOMAIN in .env (e.g. 'it' -> www.vinted.it).",
+    "To support a new market, copy an entry and adapt it; no Python changes needed.",
+    "Any scalar key can also be overridden from .env (see .env.example).",
+    "",
+    "currency                currency code sent with drafts/edits (EUR, SEK, ...)",
+    "locale                  value of the 'locale' header (affects language of API labels)",
+    "accept_language         value of the 'accept-language' header",
+    "price_format            how prices are printed/logged; {amount} is replaced",
+    "preferred_catalog_root  when a category keyword matches several catalogs, prefer the",
+    "                        ones whose path contains this text (null = take Vinted's order).",
+    "                        Matched against data/catalog_lookup_<domain>.json labels.",
+    "catalog_aliases         local names for categories -> catalog id (ids are global).",
+    "                        Checked before Vinted's live keyword search. Must be leaf",
+    "                        categories. List them with `vinted catalogs` (no keyword).",
+    "default_size_group      size group used by `--size L` / `vinted sizes` (14 = men's tops)",
+    "condition_aliases       extra local names for conditions -> id (ids are global:",
+    "                        6 new with tags, 1 new without tags, 2 very good, 3 good, 4 satisfactory)",
+    "material_aliases        local names for materials -> id",
+    "brand_prices            fixed price per brand, in this market's currency; brands not",
+    "                        listed fall back to Vinted's price suggestion"
+  ],
+
+  "se": {
+    "currency": "SEK",
+    "locale": "sv-SE",
+    "accept_language": "sv-SE,sv;q=0.9",
+    "price_format": "{amount} kr",
+    "preferred_catalog_root": "Herr",
+    "default_size_group": 14,
+    "condition_aliases": {
+      "ny med prislapp": 6,
+      "nytt med prislapp": 6,
+      "ny utan prislapp": 1,
+      "nytt utan prislapp": 1,
+      "mycket bra": 2,
+      "bra": 3,
+      "tillfredsstallande": 4,
+      "tillfredsställande": 4
+    },
+    "material_aliases": {
+      "bomull": 44
+    },
+    "catalog_aliases": {},
+    "brand_prices": {
+      "Tommy Hilfiger": 200,
+      "Polo Sport": 300,
+      "Polo Sport Ralph Lauren": 300,
+      "Polo Ralph Lauren": 300,
+      "Ralph Lauren": 300,
+      "Lauren Ralph Lauren": 300,
+      "Ralph Lauren Sport": 300
+    }
+  },
+
+  "it": {
+    "currency": "EUR",
+    "locale": "it-IT",
+    "accept_language": "it-IT,it;q=0.9",
+    "price_format": "{amount} €",
+    "preferred_catalog_root": null,
+    "default_size_group": 14,
+    "condition_aliases": {
+      "nuovo con cartellino": 6,
+      "nuovo senza cartellino": 1,
+      "ottime condizioni": 2,
+      "ottimo": 2,
+      "ottime": 2,
+      "buone condizioni": 3,
+      "buono": 3,
+      "buone": 3,
+      "discrete condizioni": 4,
+      "discreto": 4,
+      "discrete": 4
+    },
+    "material_aliases": {
+      "cotone": 44
+    },
+    "catalog_aliases": {
+      "narrativa": 2319,
+      "saggistica": 2320,
+      "ragazzi": 2363,
+      "bambini": 2364,
+      "neonati e bimbi piccoli": 2365,
+      "fumetti, manga e graphic novel": 5425,
+      "fumetti": 5425,
+      "libri di testo e materiali didattici": 5426,
+      "libri di testo": 5426,
+      "libri da colorare, rompicapo e attività": 5427,
+      "riviste": 5424
+    },
+    "brand_prices": {}
+  }
+}
