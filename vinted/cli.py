@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import re
 import subprocess
 import sys
@@ -193,16 +194,34 @@ def _read_clipboard() -> str:
 
 
 def cmd_auth_import(a) -> None:
+    # Sources, in order: --curl, --file, piped stdin, local clipboard.
+    # Pasting into the prompt is never asked for: macOS terminals truncate pasted
+    # lines at ~1024 bytes (canonical-mode limit) and the cookie line is longer.
     raw = a.curl
-    if a.file:
+    if not raw.strip() and a.file:
         raw = Path(a.file).read_text(encoding="utf-8")
+    if not raw.strip() and not sys.stdin.isatty():
+        raw = sys.stdin.read()  # e.g. `pbpaste | vinted auth import`, also over ssh
     if not raw.strip():
+        if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+            # The clipboard here is the remote machine's, not the one you copied on.
+            sys.exit(
+                "Over SSH this machine's clipboard is not yours. From your laptop run:\n"
+                "  pbpaste | ssh <user>@<host> <path>/.venv/bin/vinted auth import\n"
+                "or copy the cURL into a file here and run:\n"
+                "  vinted auth import --file request.txt"
+            )
         raw = _read_clipboard()
         if raw.strip():
             print("Read 'Copy as cURL' from your clipboard.")
-    if not raw.strip():
-        print("Paste the DevTools 'Copy as cURL' of a vinted /api/v2 request, then press Ctrl-D:")
-        raw = sys.stdin.read()
+        else:
+            input("Copy a vinted /api/v2 request in DevTools (Copy as cURL (bash)), "
+                  "then press Enter here... ")
+            raw = _read_clipboard()
+            if not raw.strip():
+                sys.exit("Clipboard is empty. Alternatives:\n"
+                         "  pbpaste | vinted auth import\n"
+                         "  vinted auth import --file request.txt")
 
     def header(name: str) -> str:
         # handles -H 'name: v', -H "name: v", and Chrome's -H $'name: v'
