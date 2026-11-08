@@ -86,6 +86,9 @@ vinted edit 9226208711 \
 
 vinted reprice --brand "Ralph Lauren" --from 350 --to 300 --dry-run
 
+# Market research: live listings matching a search + min/median/max asking price
+vinted search "russell potere" --category saggistica --condition ottime --limit 30
+
 # Lifecycle:
 vinted publish 10705687399 --attr language_book=inglese   # draft -> live
 vinted hide 10705687399        # hide a live ad (reversible; drafts can't be restored)

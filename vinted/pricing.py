@@ -35,3 +35,24 @@ def resolve_price(
     if suggestion is not None:
         return premium_from_suggestion(suggestion)
     return None
+
+
+def item_amount(item: dict[str, Any]) -> Optional[float]:
+    """Price of a search/ad item (handles {"amount": "3.0"} and plain numbers)."""
+    p = item.get("price")
+    if isinstance(p, dict):
+        p = p.get("amount")
+    try:
+        return float(p)
+    except (TypeError, ValueError):
+        return None
+
+
+def price_summary(items: list[dict[str, Any]]) -> Optional[dict[str, float]]:
+    """{'count', 'min', 'median', 'max'} of asking prices, or None if no prices."""
+    prices = sorted(x for x in (item_amount(i) for i in items) if x is not None)
+    if not prices:
+        return None
+    n = len(prices)
+    mid = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
+    return {"count": n, "min": prices[0], "median": round(mid, 2), "max": prices[-1]}

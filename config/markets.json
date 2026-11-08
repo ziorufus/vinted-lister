@@ -12,8 +12,9 @@
     "                        ones whose path contains this text (null = take Vinted's order).",
     "                        Matched against data/catalog_lookup_<domain>.json labels.",
     "catalog_aliases         local names for categories -> catalog id (ids are global).",
-    "                        Checked before Vinted's live keyword search. Must be leaf",
-    "                        categories. List them with `vinted catalogs` (no keyword).",
+    "                        Checked before Vinted's live keyword search. Drafts need leaf",
+    "                        categories; parent ones (e.g. 'libri') only work in `vinted search`.",
+    "                        List them with `vinted catalogs` (no keyword).",
     "default_size_group      size group used by `--size L` / `vinted sizes` (14 = men's tops)",
     "condition_aliases       extra local names for conditions -> id (ids are global:",
     "                        6 new with tags, 1 new without tags, 2 very good, 3 good, 4 satisfactory)",
@@ -81,6 +82,7 @@
       "cotone": 44
     },
     "catalog_aliases": {
+      "libri": 2312,
       "narrativa": 2319,
       "saggistica": 2320,
       "ragazzi": 2363,

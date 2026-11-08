@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -334,6 +335,66 @@ class VintedClient:
 
     def update_price(self, item_id: int, new_price: float) -> dict[str, Any]:
         return self.update_item(item_id, {"price": new_price})
+
+    # ---- search (catalog) -------------------------------------------------
+    def search_items(
+        self,
+        text: str = "",
+        catalog_ids: Optional[list[int]] = None,
+        status_ids: Optional[list[int]] = None,
+        order: str = "relevance",
+        page: int = 1,
+        per_page: int = 96,
+        extra: Optional[dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        filters: Optional[dict[str, list[int]]] = None,
+    ) -> dict[str, Any]:
+        """Search live listings, like the site's search bar.
+
+        GET https://api.vinted.<domain>/svc-catalogue/items (captured 2026-11-08).
+        Filters go in attribute_ids[<code>] (catalog, status, brand, size, color,
+        material). order: relevance | price_low_to_high | price_high_to_low |
+        newest_first. status_ids are condition ids; `filters` adds other
+        attribute filters, e.g. {"language_book": [6435]}. Multiple values are
+        comma-separated. Parent catalogs work here (e.g. 2312 = all books).
+        `extra` passes any other query parameter through unchanged.
+        """
+        params: dict[str, Any] = {
+            "page": page,
+            "per_page": per_page,
+            "time": int(time.time()),
+            "search_text": text,
+            "order": order,
+            "global_search_session_id": session_id or str(uuid.uuid4()),
+        }
+        attrs = {"catalog": catalog_ids, "status": status_ids, **(filters or {})}
+        for code, ids in attrs.items():
+            params[f"attribute_ids[{code}]"] = ",".join(str(i) for i in ids or [])
+        params.update(extra or {})
+        r = self.get(
+            self.market.search_url,
+            params=params,
+            headers={"platform": "web", "x-next-app": "marketplace-web",
+                     "referer": f"https://{self.host}/"},
+            timeout=30,
+        )
+        return self._json(r, "search_items")
+
+    def search_all(self, text: str = "", limit: int = 96, **kw) -> list[dict[str, Any]]:
+        """search_items across pages until `limit` items or no more results."""
+        out: list[dict[str, Any]] = []
+        page = 1
+        per_page = min(max(limit, 1), 96)
+        sid = str(uuid.uuid4())  # one search session across pages, like the site
+        while len(out) < limit:
+            res = self.search_items(text, page=page, per_page=per_page, session_id=sid, **kw)
+            items = res.get("items") or []
+            out.extend(items)
+            pag = res.get("pagination") or {}
+            if len(items) < per_page or page >= int(pag.get("total_pages") or page + 1):
+                break
+            page += 1
+        return out[:limit]
 
     # ---- lifecycle: publish / hide / unhide / delete ----------------------
     def publish_draft(

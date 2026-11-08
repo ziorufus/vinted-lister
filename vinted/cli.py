@@ -373,6 +373,37 @@ def cmd_edit(a) -> None:
     print(c.market.item_url(iid, edit=True))
 
 
+def cmd_search(a) -> None:
+    from .pricing import item_amount, price_summary
+
+    c = _client()
+    rv = Resolver(c)
+    cats = []
+    for v in a.category:
+        cid, path = rv.catalog(v)
+        if cid is None:
+            sys.exit(f"unknown category: {v}")
+        cats.append(cid)
+    statuses = [x for x in (rv.condition_id(v) for v in a.condition) if x is not None]
+    items = c.search_all(a.text, limit=a.limit, catalog_ids=cats, status_ids=statuses,
+                         filters=rv.attributes(a.filter), order=a.order)
+    if a.json:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return
+    for it in items:
+        # svc-catalogue puts the condition (for books) in item_box.second_line
+        cond = it.get("status") or (it.get("item_box") or {}).get("second_line") or ""
+        url = it.get("url") or ""
+        url = f"https://{c.host}{url}" if url.startswith("/") else (url or c.market.item_url(it.get("id")))
+        print(f"{c.market.format_price(item_amount(it))}\t{cond}\t{(it.get('title') or '')[:50]}\t{url}")
+    s = price_summary(items)
+    if s:
+        f = c.market.format_price
+        print(f"\n{s['count']} item(s): min {f(s['min'])} | median {f(s['median'])} | max {f(s['max'])}")
+    else:
+        print("no results")
+
+
 def cmd_publish(a) -> None:
     c = _client()
     iid = _item_id(a.ref)
@@ -483,6 +514,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--attr", action="append", default=[], metavar="CODE=VALUE")
     sp.add_argument("--package-size", type=int)
     sp.set_defaults(func=cmd_edit)
+
+    sp = sub.add_parser("search", help="search live listings + price summary")
+    sp.add_argument("text", help="search text (title, author, ISBN...)")
+    sp.add_argument("--category", action="append", default=[], help="catalog id or alias (repeatable)")
+    sp.add_argument("--condition", action="append", default=[], help="condition id or name (repeatable)")
+    sp.add_argument("--filter", action="append", default=[], metavar="CODE=VALUE[,VALUE]",
+                    help="other attribute filter, ids or aliases (e.g. language_book=inglese)")
+    sp.add_argument("--order", default="relevance",
+                    choices=["relevance", "price_low_to_high", "price_high_to_low", "newest_first"])
+    sp.add_argument("--limit", type=int, default=20, help="max items (default 20)")
+    sp.add_argument("--json", action="store_true", help="print raw items as JSON")
+    sp.set_defaults(func=cmd_search)
 
     sp = sub.add_parser("publish", help="publish a draft (by id or URL)")
     sp.add_argument("ref", help="draft id or vinted URL")

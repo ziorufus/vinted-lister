@@ -86,6 +86,11 @@ class Market:
     def base_url(self) -> str:
         return f"https://{self.host}/api/v2"
 
+    @property
+    def search_url(self) -> str:
+        """Catalogue search service (separate api.* host, not /api/v2)."""
+        return f"https://api.vinted.{self.domain}/svc-catalogue/items"
+
     def item_url(self, item_id, edit: bool = False) -> str:
         return f"https://{self.host}/items/{item_id}" + ("/edit" if edit else "")
 
