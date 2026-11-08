@@ -85,7 +85,17 @@ vinted edit 9226208711 \
   --category "enfärgade skjortor"
 
 vinted reprice --brand "Ralph Lauren" --from 350 --to 300 --dry-run
+
+# Lifecycle:
+vinted publish 10705687399 --attr language_book=inglese   # draft -> live
+vinted hide 10705687399        # hide a live ad (reversible; drafts can't be restored)
+vinted unhide 10705687399      # show it again
+vinted delete 10705687399      # permanent; asks for confirmation (--yes to skip)
 ```
+
+Extra dynamic attributes (e.g. a book's `language_book`) are passed with
+`--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from
+`attribute_aliases` in `config/markets.json`.
 
 The agent works in **any language** — tell it which language to write titles and
 descriptions in.

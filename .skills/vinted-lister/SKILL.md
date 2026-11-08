@@ -132,6 +132,9 @@ vinted sizes [--group N | --all]   list size ids (default: market's default_size
 vinted conditions                  list condition ids
 vinted price <image> [--brand]     image-based price band + resolved price
 vinted draft ...                   create a draft (flags or --json)
+vinted publish <id> [--attr C=V]   publish a draft (only when the owner asks)
+vinted hide <id> / unhide <id>     hide / show a live ad (reversible)
+vinted delete <id> [--yes]         permanently delete (only when the owner asks)
 vinted ads [--brand B] [--price P]  list YOUR live ads from the account
 vinted item <id|url>               show one ad's full editable data
 vinted edit <id|url> [--field ...] edit a LIVE ad (title/description/price/

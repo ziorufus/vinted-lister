@@ -75,6 +75,7 @@ class Market:
     condition_aliases: dict = field(default_factory=dict)
     material_aliases: dict = field(default_factory=dict)
     catalog_aliases: dict = field(default_factory=dict)
+    attribute_aliases: dict = field(default_factory=dict)
     brand_prices: dict = field(default_factory=dict)
 
     @property
@@ -125,4 +126,12 @@ def load_market(env: dict[str, str] | None = None, path: Path | None = None) -> 
         raise ValueError(f"unknown key(s) for market '{domain}': {', '.join(sorted(unknown))}")
     for key in ("condition_aliases", "material_aliases", "catalog_aliases"):
         cfg[key] = {str(k).lower(): int(v) for k, v in (cfg.get(key) or {}).items()}
+    attrs: dict[str, dict[str, int]] = {}
+    for code, names in (cfg.get("attribute_aliases") or {}).items():
+        if isinstance(names, str):  # file name relative to the markets file's folder
+            names = json.loads(((path or MARKETS_FILE).parent / names).read_text(encoding="utf-8"))
+        attrs[str(code)] = {
+            str(k).strip().lower(): int(v) for k, v in (names or {}).items() if not str(k).startswith("_")
+        }
+    cfg["attribute_aliases"] = attrs
     return Market(domain=domain, **cfg)

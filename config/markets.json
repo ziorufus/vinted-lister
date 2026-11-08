@@ -18,6 +18,9 @@
     "condition_aliases       extra local names for conditions -> id (ids are global:",
     "                        6 new with tags, 1 new without tags, 2 very good, 3 good, 4 satisfactory)",
     "material_aliases        local names for materials -> id",
+    "attribute_aliases       other dynamic item attributes: {code: {local name: id}},",
+    "                        used by --attr CODE=NAME (e.g. language_book=inglese).",
+    "                        The value can also be a file name in config/ holding that map.",
     "brand_prices            fixed price per brand, in this market's currency; brands not",
     "                        listed fall back to Vinted's price suggestion"
   ],
@@ -89,6 +92,9 @@
       "libri di testo": 5426,
       "libri da colorare, rompicapo e attività": 5427,
       "riviste": 5424
+    },
+    "attribute_aliases": {
+      "language_book": "languages_it.json"
     },
     "brand_prices": {}
   }

@@ -140,6 +140,7 @@ def cmd_draft(a) -> None:
             "condition_id": rv.condition_id(a.condition) if a.condition else 2,
             "material_ids": rv.material_ids(a.material),
             "isbn": a.isbn,
+            "attributes": rv.attributes(a.attr),
             "price": a.price,
             "package_size_id": a.package_size,
             "n": a.n,
@@ -325,6 +326,8 @@ def cmd_item(a) -> None:
     print(f"catalog_id:  {it.get('catalog_id')}   brand_id: {it.get('brand_id')}   size_id: {it.get('size_id')}")
     print(f"colors:      {[x for x in (it.get('color1_id'), it.get('color2_id')) if x]}   status_id: {it.get('status_id')}")
     print(f"photos:      {[p.get('id') for p in it.get('photos') or []]}")
+    print(f"isbn:        {it.get('isbn')}   draft: {it.get('is_draft')}   hidden: {it.get('is_hidden')}")
+    print(f"attributes:  {it.get('item_attributes')}")
     print("description:")
     print(it.get("description", ""))
 
@@ -359,6 +362,8 @@ def cmd_edit(a) -> None:
     if a.isbn is not None:
         from .lister import normalize_isbn
         changes["isbn"] = normalize_isbn(a.isbn)
+    if a.attr:
+        changes["attributes"] = rv.attributes(a.attr)
     if a.package_size is not None:
         changes["package_size_id"] = a.package_size
     if not changes:
@@ -366,6 +371,44 @@ def cmd_edit(a) -> None:
     c.update_item(iid, changes)
     print(f"OK updated {iid}: {', '.join(changes)}")
     print(c.market.item_url(iid, edit=True))
+
+
+def cmd_publish(a) -> None:
+    c = _client()
+    iid = _item_id(a.ref)
+    changes = {"attributes": Resolver(c).attributes(a.attr)} if a.attr else {}
+    c.publish_draft(iid, changes)
+    print(f"OK published {iid}")
+    print(c.market.item_url(iid))
+
+
+def cmd_hide(a) -> None:
+    c = _client()
+    iid = _item_id(a.ref)
+    c.set_hidden(iid, True)
+    print(f"OK hidden {iid} (undo: vinted unhide {iid})")
+
+
+def cmd_unhide(a) -> None:
+    c = _client()
+    iid = _item_id(a.ref)
+    c.set_hidden(iid, False)
+    print(f"OK visible again {iid}")
+    print(c.market.item_url(iid))
+
+
+def cmd_delete(a) -> None:
+    c = _client()
+    iid = _item_id(a.ref)
+    if not a.yes:
+        if not sys.stdin.isatty():
+            sys.exit("refusing to delete without confirmation: pass --yes")
+        title = c.get_item_edit(iid).get("title", "?")
+        ans = input(f"Permanently delete {iid} '{title}'? This cannot be undone. [y/N] ")
+        if ans.strip().lower() not in ("y", "yes", "s", "si", "sì"):
+            sys.exit("aborted")
+    c.delete_item(iid)
+    print(f"OK deleted {iid}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -398,6 +441,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--material", action="append", default=[], help="material id or name (repeatable)")
     sp.add_argument("--price", type=float)
     sp.add_argument("--isbn", help="ISBN-10/13 (books); hyphens/spaces are stripped")
+    sp.add_argument("--attr", action="append", default=[], metavar="CODE=VALUE",
+                    help="extra attribute, id or alias (e.g. language_book=inglese); repeatable")
     sp.add_argument("--package-size", type=int, default=1)
     sp.add_argument("--product", help="short product label for the log")
     sp.add_argument("--n", type=int, help="product number (for posted/NN-slug + log)")
@@ -435,8 +480,26 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--color", action="append", default=[])
     sp.add_argument("--material", action="append", default=[])
     sp.add_argument("--isbn")
+    sp.add_argument("--attr", action="append", default=[], metavar="CODE=VALUE")
     sp.add_argument("--package-size", type=int)
     sp.set_defaults(func=cmd_edit)
+
+    sp = sub.add_parser("publish", help="publish a draft (by id or URL)")
+    sp.add_argument("ref", help="draft id or vinted URL")
+    sp.add_argument("--attr", action="append", default=[], metavar="CODE=VALUE",
+                    help="set/override an attribute while publishing (e.g. language_book=inglese)")
+    sp.set_defaults(func=cmd_publish)
+
+    sp = sub.add_parser("hide", help="hide a published item (reversible)")
+    sp.add_argument("ref", help="item id or vinted URL"); sp.set_defaults(func=cmd_hide)
+
+    sp = sub.add_parser("unhide", help="make a hidden item visible again")
+    sp.add_argument("ref", help="item id or vinted URL"); sp.set_defaults(func=cmd_unhide)
+
+    sp = sub.add_parser("delete", help="permanently delete an item (asks for confirmation)")
+    sp.add_argument("ref", help="item id or vinted URL")
+    sp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    sp.set_defaults(func=cmd_delete)
 
     ap = sub.add_parser("auth", help="auth helpers")
     asub = ap.add_subparsers(dest="auth_cmd", required=True)
@@ -448,8 +511,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
+    from .client import VintedError
+
     args = build_parser().parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except (VintedError, ValueError) as e:
+        sys.exit(f"error: {e}")
 
 
 if __name__ == "__main__":

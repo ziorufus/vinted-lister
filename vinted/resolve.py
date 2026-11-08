@@ -140,6 +140,33 @@ class Resolver:
                 out.append(mid)
         return out
 
+    # ----- other dynamic attributes (e.g. language_book) --------------------
+    def attribute_ids(self, code: str, values) -> list[int]:
+        """Resolve ids or names (markets.json `attribute_aliases[code]`) to ids."""
+        names = self.market.attribute_aliases.get(code, {})
+        out: list[int] = []
+        for v in values:
+            aid = _as_int(v)
+            if aid is None:
+                aid = names.get(str(v).strip().lower())
+            if aid is None:
+                raise ValueError(
+                    f"unknown value '{v}' for attribute '{code}': pass the numeric id "
+                    f"or add it to attribute_aliases.{code} in config/markets.json"
+                )
+            out.append(aid)
+        return out
+
+    def attributes(self, pairs) -> dict[str, list[int]]:
+        """['language_book=inglese', 'x=1,2'] -> {'language_book': [6435], 'x': [1, 2]}"""
+        out: dict[str, list[int]] = {}
+        for pair in pairs or []:
+            code, sep, vals = str(pair).partition("=")
+            if not sep or not code.strip() or not vals.strip():
+                raise ValueError(f"bad attribute '{pair}', expected CODE=VALUE[,VALUE]")
+            out[code.strip()] = self.attribute_ids(code.strip(), vals.split(","))
+        return out
+
     # ----- brand -----------------------------------------------------------
     def brand(self, value: str) -> tuple[Optional[int], Optional[str]]:
         bid = _as_int(value)

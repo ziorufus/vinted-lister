@@ -82,6 +82,7 @@ def create_listing(
         size_id=spec.get("size_id"),
         material_ids=spec.get("material_ids"),
         isbn=normalize_isbn(spec.get("isbn")),
+        attributes=spec.get("attributes"),
     )
     res = client.create_draft(draft, sid)
     item = res.get("draft") or res.get("item") or res

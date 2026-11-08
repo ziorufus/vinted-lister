@@ -312,6 +312,9 @@ class VintedClient:
                 _set_attr("size", [v])
             elif k == "material_ids":
                 _set_attr("material", v)
+            elif k == "attributes":  # {code: [ids]} for any other dynamic attribute
+                for code, ids in (v or {}).items():
+                    _set_attr(code, list(ids))
             else:
                 draft[k] = v
         return draft, sid
@@ -331,6 +334,43 @@ class VintedClient:
 
     def update_price(self, item_id: int, new_price: float) -> dict[str, Any]:
         return self.update_item(item_id, {"price": new_price})
+
+    # ---- lifecycle: publish / hide / unhide / delete ----------------------
+    def publish_draft(
+        self, draft_id: int, changes: Optional[dict[str, Any]] = None, push_up: bool = False
+    ) -> dict[str, Any]:
+        """Publish a draft (the site's "Carica" button).
+
+        POST /item_upload/drafts/{id}/completion with the full draft, built from
+        the draft's current edit-data plus optional `changes` (same keys as
+        update_item, e.g. {"attributes": {"language_book": [6435]}}). Vinted
+        rejects it if a field required for the category is missing.
+        """
+        it = self.get_item_edit(draft_id)
+        it["id"] = draft_id
+        draft, sid = self._edit_draft(it, changes or {})
+        r = self.post(
+            f"{self.base}/item_upload/drafts/{draft_id}/completion",
+            headers={"content-type": "application/json"},
+            json={"draft": draft, "push_up": push_up, "parcel": None, "upload_session_id": sid},
+            timeout=60,
+        )
+        return self._json(r, "publish_draft")
+
+    def set_hidden(self, item_id: int, hidden: bool) -> dict[str, Any]:
+        """Hide (True) or show again (False) a published item. Reversible."""
+        r = self.put(
+            f"{self.base}/items/{item_id}/is_hidden",
+            headers={"content-type": "application/json"},
+            json={"is_hidden": hidden},
+            timeout=30,
+        )
+        return self._json(r, "hide" if hidden else "unhide")
+
+    def delete_item(self, item_id: int) -> dict[str, Any]:
+        """Permanently delete an item. NOT reversible."""
+        r = self.post(f"{self.base}/items/{item_id}/delete", timeout=30)
+        return self._json(r, "delete")
 
 
 def new_session_id() -> str:
@@ -353,6 +393,7 @@ def build_draft(
     size_id: Optional[int] = None,
     material_ids: Optional[list[int]] = None,
     isbn: Optional[str] = None,
+    attributes: Optional[dict[str, list[int]]] = None,
     currency: str,
     is_unisex: bool = False,
     draft_id: Optional[int] = None,
@@ -369,6 +410,8 @@ def build_draft(
         item_attributes.append({"code": "condition", "ids": [condition_id]})
     if size_id is not None:
         item_attributes.append({"code": "size", "ids": [size_id]})
+    for code, ids in (attributes or {}).items():
+        item_attributes.append({"code": code, "ids": list(ids)})
 
     return {
         "id": draft_id,
