@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Optional
@@ -11,14 +13,33 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_env(path: Path | None = None) -> dict[str, str]:
+def env_file() -> Path:
+    """Path of the settings/tokens file.
+
+    $VINTED_ENV_FILE if set and non-empty (relative paths resolve against the
+    current directory), else <repo>/.env. Evaluated on every call, so callers
+    may set the variable after importing the package. Only read from
+    os.environ, never from the file itself.
+    """
+    custom = os.environ.get("VINTED_ENV_FILE", "").strip()
+    if custom:
+        return Path(custom).expanduser()
+    return ROOT / ".env"
+
+
+def load_env(path: Path | str | None = None) -> dict[str, str]:
     env: dict[str, str] = {}
-    p = path or (ROOT / ".env")
+    p = Path(path) if path is not None else env_file()
     if p.is_dir():
         raise RuntimeError(
             f"{p} is a directory (a virtualenv?), but it must be the settings file. "
             "Move/rename it (the README uses .venv for the virtualenv) and "
-            "create .env from .env.example."
+            "create it from .env.example."
+        )
+    if not p.exists():
+        raise FileNotFoundError(
+            f"settings file not found: {p}. Create it with `vinted auth import` "
+            "or copy .env.example."
         )
     for line in p.read_text().splitlines():
         line = line.strip()
@@ -28,9 +49,15 @@ def load_env(path: Path | None = None) -> dict[str, str]:
     return env
 
 
-def update_env(values: dict[str, str], path: Path | None = None) -> None:
-    """Update/insert keys in .env, preserving existing lines and comments."""
-    p = path or (ROOT / ".env")
+def update_env(values: dict[str, str], path: Path | str | None = None) -> None:
+    """Update/insert keys in the settings file, preserving lines and comments.
+
+    Writes atomically (temp file in the same directory + fsync + os.replace).
+    A symlink is followed and its target rewritten, so the link survives.
+    Existing permissions are kept; a new file is created with 0o600 (it holds
+    secrets). Missing parent directories are created.
+    """
+    p = (Path(path) if path is not None else env_file()).expanduser().resolve()
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
     seen: set[str] = set()
     out: list[str] = []
@@ -44,7 +71,29 @@ def update_env(values: dict[str, str], path: Path | None = None) -> None:
     for k, v in values.items():
         if k not in seen:
             out.append(f"{k}={v}")
-    p.write_text("\n".join(out) + "\n", encoding="utf-8")
+    _atomic_write(p, "\n".join(out) + "\n")
+
+
+def _atomic_write(target: Path, text: str) -> None:
+    mode = (target.stat().st_mode & 0o777) if target.exists() else 0o600
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=target.parent, prefix=f".{target.name}.", suffix=".tmp",
+        delete=False,
+    )
+    try:
+        with tmp:
+            tmp.write(text)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.chmod(tmp.name, mode)
+        os.replace(tmp.name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
 
 
 # --------------------------------------------------------------------------- markets
@@ -112,7 +161,8 @@ def load_markets(path: Path | None = None) -> dict[str, dict]:
 def load_market(env: dict[str, str] | None = None, path: Path | None = None) -> Market:
     """Build the Market for VINTED_DOMAIN (default 'se'), applying .env overrides."""
     if env is None:
-        env = load_env() if (ROOT / ".env").is_file() else {}
+        f = env_file()
+        env = load_env(f) if f.is_file() else {}
     domain = (env.get("VINTED_DOMAIN") or "se").strip().lower()
     markets = load_markets(path)
     if domain not in markets:

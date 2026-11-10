@@ -20,11 +20,10 @@ from pathlib import Path
 
 from .client import VintedClient
 from .lister import create_listing
-from .config import load_market
+from .config import env_file, load_market, update_env
 from .resolve import CONDITION_IDS, Resolver
 
 ROOT = Path(__file__).resolve().parent.parent
-ENV_FILE = ROOT / ".env"
 
 
 # --------------------------------------------------------------------------- helpers
@@ -32,7 +31,8 @@ def _client() -> VintedClient:
     try:
         return VintedClient()
     except Exception as e:  # noqa: BLE001
-        sys.exit(f"setup/auth error: {e}\nFill .env (see .env.example / `vinted auth import`).")
+        sys.exit(f"setup/auth error: {e}\n"
+                 f"Fill {env_file()} (see .env.example / `vinted auth import`).")
 
 
 def _jwt_sub(token: str) -> str:
@@ -163,24 +163,8 @@ def cmd_draft(a) -> None:
 
 
 def cmd_auth_status(_a) -> None:
+    print(f"Settings file: {env_file()}")
     cmd_whoami(_a)
-
-
-def _update_env(values: dict[str, str]) -> None:
-    lines = ENV_FILE.read_text(encoding="utf-8").splitlines() if ENV_FILE.exists() else []
-    seen = set()
-    out = []
-    for line in lines:
-        m = re.match(r"^(\w+)=", line)
-        if m and m.group(1) in values:
-            out.append(f"{m.group(1)}={values[m.group(1)]}")
-            seen.add(m.group(1))
-        else:
-            out.append(line)
-    for k, v in values.items():
-        if k not in seen:
-            out.append(f"{k}={v}")
-    ENV_FILE.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 def _read_clipboard() -> str:
@@ -252,8 +236,9 @@ def cmd_auth_import(a) -> None:
 
     if not values:
         sys.exit("Could not find tokens in that cURL. Make sure it is a /api/v2 request.")
-    _update_env(values)
-    print(f"Wrote {len(values)} value(s) to .env: {', '.join(sorted(values))}")
+    target = env_file()
+    update_env(values, target)
+    print(f"Wrote {len(values)} value(s) to {target}: {', '.join(sorted(values))}")
     print("Verifying...")
     cmd_whoami(None)
 

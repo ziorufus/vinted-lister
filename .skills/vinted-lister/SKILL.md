@@ -57,6 +57,10 @@ if calls return `403`/`401`, refresh them: run `vinted auth import` and paste a
 fresh DevTools "Copy as cURL" of any `/api/v2/...` request — it parses the cookies
 and headers straight into `.env`.
 
+The settings file defaults to `.env` in the repo root; if the `VINTED_ENV_FILE`
+environment variable is set, that file is used instead (`vinted auth status`
+prints which one).
+
 ## Step-by-step
 
 ### 1. Convert HEIC → JPG

@@ -19,7 +19,7 @@ from typing import Any, Optional
 from curl_cffi import CurlMime
 from curl_cffi import requests as cffi
 
-from .config import Market, load_env, load_market, update_env
+from .config import Market, env_file, load_env, load_market, update_env
 
 
 class VintedError(RuntimeError):
@@ -28,9 +28,15 @@ class VintedError(RuntimeError):
 
 class VintedClient:
     def __init__(
-        self, env: Optional[dict[str, str]] = None, market: Optional[Market] = None
+        self,
+        env: Optional[dict[str, str]] = None,
+        market: Optional[Market] = None,
+        env_path: Path | str | None = None,
     ) -> None:
-        env = env or load_env()
+        # Settings/tokens file: explicit env_path, else $VINTED_ENV_FILE, else
+        # <repo>/.env. Used to load `env` (when not given) and by refresh().
+        self.env_path = Path(env_path).expanduser() if env_path is not None else env_file()
+        env = env or load_env(self.env_path)
         self.env = env
         self.market = market or load_market(env)
         self.domain = self.market.domain
@@ -72,7 +78,7 @@ class VintedClient:
 
     # ---- auth / requests --------------------------------------------------
     def refresh(self) -> bool:
-        """Mint a fresh access token from the refresh token; persist to .env."""
+        """Mint a fresh access token from the refresh token; persist to env_path."""
         try:
             r = self.session.post(
                 f"https://{self.host}/web/api/auth/refresh",
@@ -104,7 +110,7 @@ class VintedClient:
             if v:
                 values[key] = v
         try:
-            update_env(values)
+            update_env(values, self.env_path)
         except Exception:  # noqa: BLE001
             pass
         return True

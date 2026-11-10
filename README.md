@@ -61,6 +61,29 @@ the cookies (`access_token_web`, `refresh_token_web`, `_vinted_fr_session`,
 
 Tokens are short-lived; re-run `vinted auth import` if you start getting `401`/`403`.
 
+### Where the settings file lives (`VINTED_ENV_FILE`)
+
+By default tokens and settings are read from and written to `.env` in the repo
+root. Set `VINTED_ENV_FILE` to keep them elsewhere, e.g. when another application
+imports the `vinted` package. The CLI then reads and writes that file too, and
+refreshed tokens are saved back to it:
+
+```bash
+VINTED_ENV_FILE=/srv/app/vinted.env vinted auth import
+VINTED_ENV_FILE=/srv/app/vinted.env vinted auth status   # prints the file in use
+```
+
+As a library, pass the path explicitly:
+
+```python
+from vinted import VintedClient
+client = VintedClient(env_path="/srv/app/vinted.env")
+```
+
+Only this file moves: `config/markets.json`, `data/`, `inbox/`, `posted/` and
+`review/` stay relative to the repo. A new file is created with `0600`
+permissions; updates are atomic and keep existing permissions and symlinks.
+
 ## Usage
 
 The agent drives the `vinted` CLI under the hood — you can use it manually too:
