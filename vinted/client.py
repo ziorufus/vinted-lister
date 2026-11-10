@@ -79,20 +79,28 @@ class VintedClient:
     # ---- auth / requests --------------------------------------------------
     def refresh(self) -> bool:
         """Mint a fresh access token from the refresh token; persist to env_path."""
+        # The refresh endpoint rejects the request ("Authorization failed") when
+        # it carries the expired access token as a Bearer header, as the browser
+        # never does. Drop it for this call only; the cookies are enough.
+        bearer = self.session.headers.pop("authorization", None)
         try:
             r = self.session.post(
                 f"https://{self.host}/web/api/auth/refresh",
                 headers={"accept": "application/json"}, timeout=30,
             )
         except Exception:  # noqa: BLE001
-            return False
-        if r.status_code != 200:
+            r = None
+        if r is None or r.status_code != 200:
+            if bearer is not None:
+                self.session.headers["authorization"] = bearer
             return False
         try:
             new_access = r.json().get("access_token")
         except Exception:  # noqa: BLE001
             new_access = None
         if not new_access:
+            if bearer is not None:
+                self.session.headers["authorization"] = bearer
             return False
         self.access = new_access
         self.session.headers["authorization"] = f"Bearer {new_access}"
