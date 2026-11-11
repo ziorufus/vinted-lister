@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .client import VintedClient
+from .client import VintedClient, VintedError
 from .lister import create_listing
 from .config import env_file, load_market, update_env
 from .resolve import CONDITION_IDS, Resolver
@@ -419,10 +419,21 @@ def cmd_delete(a) -> None:
     if not a.yes:
         if not sys.stdin.isatty():
             sys.exit("refusing to delete without confirmation: pass --yes")
-        title = c.get_item_edit(iid).get("title", "?")
-        ans = input(f"Permanently delete {iid} '{title}'? This cannot be undone. [y/N] ")
+        if a.draft:
+            try:
+                title = c.get_item_edit(iid).get("title")
+            except VintedError:
+                title = None
+        else:
+            title = c.get_item_edit(iid).get("title", "?")
+        label = f"{iid} '{title}'" if title is not None else f"{iid}"
+        ans = input(f"Permanently delete {label}? This cannot be undone. [y/N] ")
         if ans.strip().lower() not in ("y", "yes", "s", "si", "sì"):
             sys.exit("aborted")
+    if a.draft:
+        c.delete_draft(iid)
+        print(f"OK deleted draft {iid}")
+        return
     c.delete_item(iid)
     print(f"OK deleted {iid}")
 
@@ -527,6 +538,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("delete", help="permanently delete an item (asks for confirmation)")
     sp.add_argument("ref", help="item id or vinted URL")
     sp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    sp.add_argument("--draft", action="store_true", help="the item is a draft (uses the draft endpoint)")
     sp.set_defaults(func=cmd_delete)
 
     ap = sub.add_parser("auth", help="auth helpers")

@@ -117,7 +117,10 @@ vinted publish 10705687399 --attr language_book=inglese   # draft -> live
 vinted hide 10705687399        # hide a live ad (reversible; drafts can't be restored)
 vinted unhide 10705687399      # show it again
 vinted delete 10705687399      # permanent; asks for confirmation (--yes to skip)
+vinted delete 10705350222 --draft   # delete a draft (permanent)
 ```
+
+Drafts must be deleted with `--draft`: the endpoint for published items rejects drafts with `400`.
 
 Extra dynamic attributes (e.g. a book's `language_book`) are passed with
 `--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from

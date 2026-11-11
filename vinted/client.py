@@ -139,6 +139,9 @@ class VintedClient:
     def put(self, url: str, **kwargs):
         return self._request("PUT", url, **kwargs)
 
+    def delete(self, url: str, **kwargs):
+        return self._request("DELETE", url, **kwargs)
+
     # ---- internal ---------------------------------------------------------
     def _json(self, r, what: str) -> dict[str, Any]:
         if r.status_code != 200:
@@ -446,6 +449,22 @@ class VintedClient:
         """Permanently delete an item. NOT reversible."""
         r = self.post(f"{self.base}/items/{item_id}/delete", timeout=30)
         return self._json(r, "delete")
+
+    def delete_draft(self, draft_id: int) -> dict[str, Any]:
+        """Permanently delete a draft. NOT reversible.
+
+        For published items use delete_item (which returns 400 on drafts).
+        """
+        r = self.delete(f"{self.base}/item_upload/drafts/{draft_id}", timeout=30)
+        if r.status_code not in (200, 204):
+            raise VintedError(f"delete_draft -> {r.status_code}: {r.text[:300]}")
+        if r.status_code == 204 or not (r.text or "").strip():
+            return {}
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            return {}
+        return data if isinstance(data, dict) else {}
 
 
 def new_session_id() -> str:
