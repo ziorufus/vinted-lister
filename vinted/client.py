@@ -75,6 +75,8 @@ class VintedClient:
                 self.user_id = str(json.loads(base64.urlsafe_b64decode(p)).get("sub", ""))
             except Exception:  # noqa: BLE001
                 self.user_id = ""
+        # transaction_id -> item ids in that order; transactions never change.
+        self._tx_items: dict[int, list[int]] = {}
 
     # ---- auth / requests --------------------------------------------------
     def refresh(self) -> bool:
@@ -465,6 +467,74 @@ class VintedClient:
         except Exception:  # noqa: BLE001
             return {}
         return data if isinstance(data, dict) else {}
+
+    # ---- sold orders --------------------------------------------------------
+    def my_orders(
+        self, type: str = "sold", status: str = "all", page: int = 1, per_page: int = 20
+    ) -> list[dict[str, Any]]:
+        """The user's orders, newest first (type 'sold' = sales).
+
+        Each order has transaction_id, title, price {amount, currency_code},
+        status (text), date, transaction_user_status, but NOT the item id:
+        use get_transaction for that.
+        """
+        r = self.get(
+            f"{self.base}/my_orders",
+            params={"type": type, "status": status, "page": page, "per_page": per_page},
+            timeout=30,
+        )
+        return self._json(r, "my_orders").get("my_orders") or []
+
+    def get_transaction(self, transaction_id: int) -> dict[str, Any]:
+        """Transaction detail (order.item_ids, offer, fees, status_title, ...)."""
+        r = self.get(f"{self.base}/transactions/{transaction_id}", timeout=30)
+        data = self._json(r, "get_transaction")
+        return data.get("transaction", data)
+
+    def transaction_item_ids(self, transaction_id: int) -> list[int]:
+        """Item ids contained in a transaction's order (cached per instance)."""
+        tid = int(transaction_id)
+        if tid not in self._tx_items:
+            tx = self.get_transaction(tid)
+            ids = (tx.get("order") or {}).get("item_ids") or []
+            self._tx_items[tid] = [int(i) for i in ids]
+        return self._tx_items[tid]
+
+    def sale_prices(self, item_ids, max_transactions: int = 40) -> dict[int, float]:
+        """Actual sale amount (offers included, buyer fee excluded) per item id.
+
+        Walks the sold orders newest first and reads each order's transaction to
+        learn which item it holds. Bundles (several items in one order) are
+        skipped, since their amount can't be split. Stops when every item is
+        found, when orders run out, or after `max_transactions` transaction
+        reads (cached ones don't count). Items not found are left out.
+        """
+        wanted = {int(i) for i in item_ids}
+        found: dict[int, float] = {}
+        reads = 0
+        page = 1
+        while wanted - found.keys():
+            orders = self.my_orders(page=page, per_page=20)
+            for o in orders:
+                tid = o.get("transaction_id")
+                if tid is None:
+                    continue
+                if int(tid) not in self._tx_items:
+                    if reads >= max_transactions:
+                        return found
+                    reads += 1
+                ids = self.transaction_item_ids(tid)
+                if len(ids) == 1 and ids[0] in wanted and ids[0] not in found:
+                    try:
+                        found[ids[0]] = float((o.get("price") or {}).get("amount"))
+                    except (TypeError, ValueError):
+                        pass
+                    if not wanted - found.keys():
+                        return found
+            if len(orders) < 20:
+                break
+            page += 1
+        return found
 
 
 def new_session_id() -> str:

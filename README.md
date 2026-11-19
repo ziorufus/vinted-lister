@@ -99,6 +99,7 @@ vinted draft --photo inbox/IMG_0001.jpg --photo inbox/IMG_0002.jpg \
 # Manage your existing live ads (read from the account, not a local file):
 vinted ads                         # list your live listings
 vinted item 9226208711             # show one ad (id or full URL)
+vinted sold --limit 10             # sold orders: day, item id, amount, status, title
 
 # Edit one or many fields in a single call (only the fields you pass change;
 # photos are preserved):
@@ -121,6 +122,9 @@ vinted delete 10705350222 --draft   # delete a draft (permanent)
 ```
 
 Drafts must be deleted with `--draft`: the endpoint for published items rejects drafts with `400`.
+
+`vinted sold` shows the actual sale amounts (accepted offers included, buyer fee
+excluded); the price in your wardrobe (`vinted ads`) stays the listing price.
 
 Extra dynamic attributes (e.g. a book's `language_book`) are passed with
 `--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from

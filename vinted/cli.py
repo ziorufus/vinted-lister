@@ -413,6 +413,32 @@ def cmd_unhide(a) -> None:
     print(c.market.item_url(iid))
 
 
+def cmd_sold(a) -> None:
+    # Only order data: never prints buyer details or conversations.
+    c = _client()
+    shown, page = 0, 1
+    while shown < a.limit:
+        orders = c.my_orders(page=page, per_page=20)
+        for o in orders:
+            if shown >= a.limit:
+                break
+            try:
+                ids = c.transaction_item_ids(o.get("transaction_id"))
+                item = ",".join(str(i) for i in ids) or "?"
+                if len(ids) > 1:
+                    item += " (bundle)"
+            except (VintedError, TypeError, ValueError):
+                item = "?"
+            price = o.get("price") or {}
+            amount = f"{price.get('amount', '?')} {price.get('currency_code', '')}".strip()
+            day = str(o.get("date") or "")[:10]
+            print(f"{day}\t{item}\t{amount}\t{o.get('status') or ''}\t{(o.get('title') or '')[:48]}")
+            shown += 1
+        if len(orders) < 20:
+            break
+        page += 1
+
+
 def cmd_delete(a) -> None:
     c = _client()
     iid = _item_id(a.ref)
@@ -483,6 +509,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--brand", help="filter: brand substring")
     sp.add_argument("--price", type=float, help="filter: exact current price")
     sp.set_defaults(func=cmd_ads)
+
+    sp = sub.add_parser("sold", help="list sold orders with the actual amount (offers included)")
+    sp.add_argument("--limit", type=int, default=20, help="how many orders to show (default 20)")
+    sp.set_defaults(func=cmd_sold)
 
     sp = sub.add_parser("reprice", help="bulk-change price of matching ads")
     sp.add_argument("--brand", required=True, help="brand substring(s), comma-separated")
