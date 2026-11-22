@@ -128,6 +128,9 @@ excluded); the price in your wardrobe (`vinted ads`) stays the listing price.
 A bundle (several items bought together with one offer) has a single amount
 for the whole set: each item gets a share proportional to its listing price
 (e.g. `10918455820=5.47,10919496246=2.43 (bundle)` for 9 € + 4 € sold at 7.90 €).
+Vinted credits the seller only once the buyer confirms receipt: the order's
+`transaction_user_status` is then `completed` (transaction status 450).
+`client.sales()` reports it per item (`Sale.completed`, `Sale.completed_at`).
 
 Extra dynamic attributes (e.g. a book's `language_book`) are passed with
 `--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from

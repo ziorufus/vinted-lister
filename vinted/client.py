@@ -33,11 +33,18 @@ class Sale(NamedTuple):
     (see VintedClient.order_item_amounts), `bundle_items` is the number of
     items in the bundle and `bundle_total` the whole bundle amount; for an item
     sold alone they are 1 and `amount`.
+
+    `completed` is True once the buyer has confirmed receipt (order
+    transaction_user_status "completed", transaction status 450): only then
+    does Vinted credit the seller. `completed_at` is when that happened (the
+    transaction's status_updated_at, ISO 8601), if known.
     """
 
     amount: float
     bundle_items: int = 1
     bundle_total: Optional[float] = None
+    completed: bool = False
+    completed_at: Optional[str] = None
 
     @property
     def is_bundle(self) -> bool:
@@ -557,14 +564,16 @@ class VintedClient:
         return {i: s.amount for i, s in self.sales(item_ids, max_transactions).items()}
 
     def sales(self, item_ids, max_transactions: int = 40) -> dict[int, Sale]:
-        """Actual sale (amount, and bundle it was sold in if any) per item id.
+        """Actual sale (amount, bundle it was sold in if any, whether the buyer
+        confirmed receipt) per item id.
 
         Walks the sold orders newest first and reads each order's transaction to
         learn which items it holds. Items sold in a bundle get a share of the
         bundle amount proportional to their listing price (see
         order_item_amounts). Stops when every item is found, when orders run
         out, or after `max_transactions` transaction reads (cached ones don't
-        count). Items not found are left out.
+        count; for completed orders the transaction is read again, uncached, to
+        get the completion date). Items not found are left out.
         """
         wanted = {int(i) for i in item_ids}
         found: dict[int, Sale] = {}
@@ -584,9 +593,18 @@ class VintedClient:
                 if any(i in wanted and i not in found for i in ids):
                     amounts = self.order_item_amounts(o)
                     total = round(sum(amounts.values()), 2)
+                    completed = o.get("transaction_user_status") == "completed"
+                    completed_at = None
+                    if completed and amounts:
+                        # The status changes over time: never from the cache
+                        reads += 1
+                        try:
+                            completed_at = self.get_transaction(tid).get("status_updated_at")
+                        except VintedError:
+                            pass
                     for i, amount in amounts.items():
                         if i in wanted and i not in found:
-                            found[i] = Sale(amount, len(amounts), total)
+                            found[i] = Sale(amount, len(amounts), total, completed, completed_at)
                     if not wanted - found.keys():
                         return found
             if len(orders) < 20:
