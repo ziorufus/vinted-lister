@@ -426,6 +426,9 @@ def cmd_sold(a) -> None:
                 ids = c.transaction_item_ids(o.get("transaction_id"))
                 item = ",".join(str(i) for i in ids) or "?"
                 if len(ids) > 1:
+                    shares = c.order_item_amounts(o)
+                    if shares:
+                        item = ",".join(f"{i}={shares[i]:.2f}" for i in ids)
                     item += " (bundle)"
             except (VintedError, TypeError, ValueError):
                 item = "?"

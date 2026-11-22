@@ -75,8 +75,9 @@ class VintedClient:
                 self.user_id = str(json.loads(base64.urlsafe_b64decode(p)).get("sub", ""))
             except Exception:  # noqa: BLE001
                 self.user_id = ""
-        # transaction_id -> item ids in that order; transactions never change.
-        self._tx_items: dict[int, list[int]] = {}
+        # transaction_id -> (item id, listing price) for each item in that order;
+        # transactions never change.
+        self._tx_items: dict[int, list[tuple[int, Optional[float]]]] = {}
 
     # ---- auth / requests --------------------------------------------------
     def refresh(self) -> bool:
@@ -491,23 +492,56 @@ class VintedClient:
         data = self._json(r, "get_transaction")
         return data.get("transaction", data)
 
-    def transaction_item_ids(self, transaction_id: int) -> list[int]:
-        """Item ids contained in a transaction's order (cached per instance)."""
+    def transaction_items(self, transaction_id: int) -> list[tuple[int, Optional[float]]]:
+        """(item id, listing price) for each item in a transaction's order, in
+        order.item_ids order (cached per instance). The price is None when the
+        transaction doesn't report it."""
         tid = int(transaction_id)
         if tid not in self._tx_items:
-            tx = self.get_transaction(tid)
-            ids = (tx.get("order") or {}).get("item_ids") or []
-            self._tx_items[tid] = [int(i) for i in ids]
+            order = self.get_transaction(tid).get("order") or {}
+            listed: dict[int, Optional[float]] = {}
+            for it in order.get("items") or []:
+                try:
+                    listed[int(it["id"])] = float((it.get("price") or {}).get("amount"))
+                except (KeyError, TypeError, ValueError):
+                    continue
+            ids = [int(i) for i in order.get("item_ids") or []] or list(listed)
+            self._tx_items[tid] = [(i, listed.get(i)) for i in ids]
         return self._tx_items[tid]
+
+    def transaction_item_ids(self, transaction_id: int) -> list[int]:
+        """Item ids contained in a transaction's order (cached per instance)."""
+        return [i for i, _ in self.transaction_items(transaction_id)]
+
+    def order_item_amounts(self, order: dict[str, Any]) -> dict[int, float]:
+        """Sale amount of each item in a sold order (an entry of my_orders).
+
+        A single item gets the whole order amount. A bundle's amount (the
+        accepted offer for the whole set) is split in proportion to the items'
+        listing prices, to the cent, summing exactly to the order amount; if a
+        listing price is missing the bundle can't be split and {} is returned.
+        """
+        try:
+            total = float((order.get("price") or {}).get("amount"))
+        except (TypeError, ValueError):
+            return {}
+        items = self.transaction_items(order["transaction_id"])
+        if len(items) == 1:
+            return {items[0][0]: total}
+        if not items or any(p is None for _, p in items):
+            return {}
+        shares = split_amount(total, [p for _, p in items])
+        return {} if shares is None else {i: s for (i, _), s in zip(items, shares)}
 
     def sale_prices(self, item_ids, max_transactions: int = 40) -> dict[int, float]:
         """Actual sale amount (offers included, buyer fee excluded) per item id.
 
         Walks the sold orders newest first and reads each order's transaction to
-        learn which item it holds. Bundles (several items in one order) are
-        skipped, since their amount can't be split. Stops when every item is
-        found, when orders run out, or after `max_transactions` transaction
-        reads (cached ones don't count). Items not found are left out.
+        learn which items it holds. Items sold in a bundle get a share of the
+        bundle amount proportional to their listing price (see
+        order_item_amounts). Stops when every item is found, when orders run
+        out, or after `max_transactions` transaction reads (cached ones don't
+        count). Items not found are left out.
         """
         wanted = {int(i) for i in item_ids}
         found: dict[int, float] = {}
@@ -524,17 +558,32 @@ class VintedClient:
                         return found
                     reads += 1
                 ids = self.transaction_item_ids(tid)
-                if len(ids) == 1 and ids[0] in wanted and ids[0] not in found:
-                    try:
-                        found[ids[0]] = float((o.get("price") or {}).get("amount"))
-                    except (TypeError, ValueError):
-                        pass
+                if any(i in wanted and i not in found for i in ids):
+                    for i, amount in self.order_item_amounts(o).items():
+                        if i in wanted and i not in found:
+                            found[i] = amount
                     if not wanted - found.keys():
                         return found
             if len(orders) < 20:
                 break
             page += 1
         return found
+
+
+def split_amount(total: float, weights: list[float]) -> Optional[list[float]]:
+    """Split `total` in proportion to `weights`, to the cent, so that the parts
+    sum exactly to `total` (largest remainder: leftover cents go to the largest
+    fractional parts). None if the weights don't sum to a positive amount."""
+    cents = round(total * 100)
+    w = [max(0, round(x * 100)) for x in weights]
+    wsum = sum(w)
+    if wsum <= 0:
+        return None
+    parts = [cents * x // wsum for x in w]
+    by_remainder = sorted(range(len(w)), key=lambda k: -(cents * w[k] % wsum))
+    for k in by_remainder[: cents - sum(parts)]:
+        parts[k] += 1
+    return [p / 100 for p in parts]
 
 
 def new_session_id() -> str:

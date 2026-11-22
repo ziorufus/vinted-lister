@@ -125,6 +125,9 @@ Drafts must be deleted with `--draft`: the endpoint for published items rejects 
 
 `vinted sold` shows the actual sale amounts (accepted offers included, buyer fee
 excluded); the price in your wardrobe (`vinted ads`) stays the listing price.
+A bundle (several items bought together with one offer) has a single amount
+for the whole set: each item gets a share proportional to its listing price
+(e.g. `10918455820=5.47,10919496246=2.43 (bundle)` for 9 € + 4 € sold at 7.90 €).
 
 Extra dynamic attributes (e.g. a book's `language_book`) are passed with
 `--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from
