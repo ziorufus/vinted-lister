@@ -14,7 +14,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from curl_cffi import CurlMime
 from curl_cffi import requests as cffi
@@ -24,6 +24,24 @@ from .config import Market, env_file, load_env, load_market, update_env
 
 class VintedError(RuntimeError):
     pass
+
+
+class Sale(NamedTuple):
+    """An item's actual sale amount (offers included, buyer fee excluded).
+
+    For an item sold in a bundle, `amount` is its share of the bundle amount
+    (see VintedClient.order_item_amounts), `bundle_items` is the number of
+    items in the bundle and `bundle_total` the whole bundle amount; for an item
+    sold alone they are 1 and `amount`.
+    """
+
+    amount: float
+    bundle_items: int = 1
+    bundle_total: Optional[float] = None
+
+    @property
+    def is_bundle(self) -> bool:
+        return self.bundle_items > 1
 
 
 class VintedClient:
@@ -534,7 +552,12 @@ class VintedClient:
         return {} if shares is None else {i: s for (i, _), s in zip(items, shares)}
 
     def sale_prices(self, item_ids, max_transactions: int = 40) -> dict[int, float]:
-        """Actual sale amount (offers included, buyer fee excluded) per item id.
+        """Actual sale amount (offers included, buyer fee excluded) per item id;
+        see sales() for how they're found and for bundle details."""
+        return {i: s.amount for i, s in self.sales(item_ids, max_transactions).items()}
+
+    def sales(self, item_ids, max_transactions: int = 40) -> dict[int, Sale]:
+        """Actual sale (amount, and bundle it was sold in if any) per item id.
 
         Walks the sold orders newest first and reads each order's transaction to
         learn which items it holds. Items sold in a bundle get a share of the
@@ -544,7 +567,7 @@ class VintedClient:
         count). Items not found are left out.
         """
         wanted = {int(i) for i in item_ids}
-        found: dict[int, float] = {}
+        found: dict[int, Sale] = {}
         reads = 0
         page = 1
         while wanted - found.keys():
@@ -559,9 +582,11 @@ class VintedClient:
                     reads += 1
                 ids = self.transaction_item_ids(tid)
                 if any(i in wanted and i not in found for i in ids):
-                    for i, amount in self.order_item_amounts(o).items():
+                    amounts = self.order_item_amounts(o)
+                    total = round(sum(amounts.values()), 2)
+                    for i, amount in amounts.items():
                         if i in wanted and i not in found:
-                            found[i] = amount
+                            found[i] = Sale(amount, len(amounts), total)
                     if not wanted - found.keys():
                         return found
             if len(orders) < 20:
