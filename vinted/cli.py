@@ -414,31 +414,34 @@ def cmd_unhide(a) -> None:
 
 
 def cmd_sold(a) -> None:
-    # Only order data: never prints buyer details or conversations.
+    # Only order data: never prints buyer details or messages.
     c = _client()
-    shown, page = 0, 1
-    while shown < a.limit:
-        orders = c.my_orders(page=page, per_page=20)
-        for o in orders:
+    c.min_interval = a.interval
+    shown, page, pages = 0, 1, 1
+    while shown < a.limit and page <= pages:
+        convs, pages = c.inbox(page=page, per_page=100)
+        for conv in convs:
             if shown >= a.limit:
                 break
             try:
-                ids = c.transaction_item_ids(o.get("transaction_id"))
-                item = ",".join(str(i) for i in ids) or "?"
-                if len(ids) > 1:
-                    shares = c.order_item_amounts(o)
-                    if shares:
-                        item = ",".join(f"{i}={shares[i]:.2f}" for i in ids)
-                    item += " (bundle)"
-            except (VintedError, TypeError, ValueError):
-                item = "?"
-            price = o.get("price") or {}
-            amount = f"{price.get('amount', '?')} {price.get('currency_code', '')}".strip()
-            day = str(o.get("date") or "")[:10]
-            print(f"{day}\t{item}\t{amount}\t{o.get('status') or ''}\t{(o.get('title') or '')[:48]}")
+                detail = c.get_conversation(conv["id"])
+                sales = c._conversation_sales(detail)
+            except (VintedError, TypeError, ValueError) as e:
+                print(f"{str(conv.get('updated_at') or '')[:10]}\t?\t?\terror: {e}\t")
+                shown += 1
+                continue
+            if not sales:
+                continue  # no purchase in this conversation (question, offer, ...)
+            first = next(iter(sales.values()))
+            item = ",".join(str(i) for i in sales)
+            if first.is_bundle:
+                item = ",".join(f"{i}={s.amount:.2f}" for i, s in sales.items()) + " (bundle)"
+            total = first.bundle_total if first.bundle_total is not None else first.amount
+            status = f"completed {str(first.completed_at or '')[:10]}".strip() if first.completed else "in progress"
+            day = str(conv.get("updated_at") or "")[:10]
+            title = (detail.get("transaction") or {}).get("item_title") or ""
+            print(f"{day}\t{item}\t{total:.2f}\t{status}\t{title[:48]}")
             shown += 1
-        if len(orders) < 20:
-            break
         page += 1
 
 
@@ -515,6 +518,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("sold", help="list sold orders with the actual amount (offers included)")
     sp.add_argument("--limit", type=int, default=20, help="how many orders to show (default 20)")
+    sp.add_argument("--interval", type=float, default=1.0, help="minimum seconds between requests (default 1)")
     sp.set_defaults(func=cmd_sold)
 
     sp = sub.add_parser("reprice", help="bulk-change price of matching ads")

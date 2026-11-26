@@ -12,7 +12,9 @@ from __future__ import annotations
 import base64
 import json
 import time
+import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
@@ -34,10 +36,11 @@ class Sale(NamedTuple):
     items in the bundle and `bundle_total` the whole bundle amount; for an item
     sold alone they are 1 and `amount`.
 
-    `completed` is True once the buyer has confirmed receipt (order
-    transaction_user_status "completed", transaction status 450): only then
-    does Vinted credit the seller. `completed_at` is when that happened (the
-    transaction's status_updated_at, ISO 8601), if known.
+    `completed` is True once the buyer has confirmed receipt (transaction
+    `is_completed`, status 450; a sale is status 200-499, see SALE_STATUSES): only then does Vinted credit the seller.
+    `completed_at` is when that happened (the transaction's status_updated_at,
+    ISO 8601), if known. `transaction_id` and `conversation_id` identify the
+    order (read again with VintedClient.conversation_sales).
     """
 
     amount: float
@@ -45,13 +48,54 @@ class Sale(NamedTuple):
     bundle_total: Optional[float] = None
     completed: bool = False
     completed_at: Optional[str] = None
+    transaction_id: Optional[int] = None
+    conversation_id: Optional[int] = None
 
     @property
     def is_bundle(self) -> bool:
         return self.bundle_items > 1
 
 
+def _money(value: Any) -> Optional[float]:
+    """{"amount": "5.0", ...} (or a bare number) -> 5.0; None if missing."""
+    amount = value.get("amount") if isinstance(value, dict) else value
+    try:
+        return round(float(amount), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+# Transaction status in a conversation (seen November 2026): 1 offer (even an
+# accepted one, not paid yet), 230 sold (paid, to ship or shipped), 450 completed
+# (buyer confirmed receipt), 500 item no longer available (bought by someone
+# else). purchase_id is set for all of them: only the status tells a sale.
+SALE_STATUSES = range(200, 500)
+COMPLETED_STATUS = 450
+
+
+def _is_sale(tx: dict[str, Any]) -> bool:
+    try:
+        status = int(tx.get("status"))
+    except (TypeError, ValueError):
+        return False
+    return status in SALE_STATUSES
+
+
+def _when(value: Any) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 class VintedClient:
+    # Minimum seconds between two requests (0 = no limit), set per instance.
+    # The time of the last request is shared by every client in the process,
+    # so callers that create a client per operation still space their calls.
+    min_interval: float = 0.0
+    _last_request_at: float = 0.0
+    _throttle = threading.Lock()
+
     def __init__(
         self,
         env: Optional[dict[str, str]] = None,
@@ -151,7 +195,16 @@ class VintedClient:
             pass
         return True
 
+    def _wait_turn(self) -> None:
+        with VintedClient._throttle:
+            if self.min_interval > 0:
+                wait = VintedClient._last_request_at + self.min_interval - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+            VintedClient._last_request_at = time.monotonic()
+
     def _request(self, method: str, url: str, _retried: bool = False, **kwargs):
+        self._wait_turn()
         r = self.session.request(method, url, **kwargs)
         if r.status_code == 401 and not _retried and self.env.get("VINTED_REFRESH_TOKEN_WEB"):
             if self.refresh():
@@ -495,21 +548,22 @@ class VintedClient:
         return data if isinstance(data, dict) else {}
 
     # ---- sold orders --------------------------------------------------------
-    def my_orders(
-        self, type: str = "sold", status: str = "all", page: int = 1, per_page: int = 20
-    ) -> list[dict[str, Any]]:
-        """The user's orders, newest first (type 'sold' = sales).
+    def inbox(self, page: int = 1, per_page: int = 100) -> tuple[list[dict[str, Any]], int]:
+        """One page of conversations, most recently updated first, and the number
+        of pages. Each has id, description (a preview of the last message, not the
+        item title), item_count, updated_at, but not the transaction: use
+        get_conversation for that."""
+        r = self.get(f"{self.base}/inbox", params={"page": page, "per_page": per_page}, timeout=30)
+        data = self._json(r, "inbox")
+        pages = (data.get("pagination") or {}).get("total_pages") or 1
+        return data.get("conversations") or [], int(pages)
 
-        Each order has transaction_id, title, price {amount, currency_code},
-        status (text), date, transaction_user_status, but NOT the item id:
-        use get_transaction for that.
-        """
-        r = self.get(
-            f"{self.base}/my_orders",
-            params={"type": type, "status": status, "page": page, "per_page": per_page},
-            timeout=30,
-        )
-        return self._json(r, "my_orders").get("my_orders") or []
+    def get_conversation(self, conversation_id: int) -> dict[str, Any]:
+        """Conversation detail: messages and the transaction (item_ids, status,
+        is_completed, offer_price, ...), if any."""
+        r = self.get(f"{self.base}/conversations/{conversation_id}", timeout=30)
+        data = self._json(r, "get_conversation")
+        return data.get("conversation", data)
 
     def get_transaction(self, transaction_id: int) -> dict[str, Any]:
         """Transaction detail (order.item_ids, offer, fees, status_title, ...)."""
@@ -539,7 +593,8 @@ class VintedClient:
         return [i for i, _ in self.transaction_items(transaction_id)]
 
     def order_item_amounts(self, order: dict[str, Any]) -> dict[int, float]:
-        """Sale amount of each item in a sold order (an entry of my_orders).
+        """Sale amount of each item in a sold order ({"price": {"amount": ...},
+        "transaction_id": ...}).
 
         A single item gets the whole order amount. A bundle's amount (the
         accepted offer for the whole set) is split in proportion to the items'
@@ -558,60 +613,83 @@ class VintedClient:
         shares = split_amount(total, [p for _, p in items])
         return {} if shares is None else {i: s for (i, _), s in zip(items, shares)}
 
-    def sale_prices(self, item_ids, max_transactions: int = 40) -> dict[int, float]:
-        """Actual sale amount (offers included, buyer fee excluded) per item id;
-        see sales() for how they're found and for bundle details."""
-        return {i: s.amount for i, s in self.sales(item_ids, max_transactions).items()}
+    def _conversation_sales(self, conv: dict[str, Any], wanted=None) -> dict[int, Sale]:
+        """Sales in a conversation's transaction, if it is a purchase of one of our
+        items. With `wanted`, only conversations holding one of those item ids are
+        looked at (the others cost no further request)."""
+        tx = conv.get("transaction") or {}
+        tid = tx.get("id")
+        ids = [int(i) for i in tx.get("item_ids") or []] or ([int(tx["item_id"])] if tx.get("item_id") else [])
+        if tid is None or not ids or tx.get("current_user_side") != "seller":
+            return {}
+        if not _is_sale(tx):
+            return {}
+        if wanted is not None and not any(i in wanted for i in ids):
+            return {}
+        total = _money(tx.get("offer_price"))
+        if total is None:
+            paid, fee = _money(tx.get("total_amount_without_tax")), _money(tx.get("service_fee"))
+            total = round(paid - (fee or 0), 2) if paid is not None else None
+        if total is None:
+            return {}
+        amounts = {ids[0]: total} if len(ids) == 1 else self.order_item_amounts(
+            {"price": {"amount": total}, "transaction_id": tid}
+        )
+        if not amounts:
+            return {}
+        completed = bool(tx.get("is_completed")) or int(tx["status"]) == COMPLETED_STATUS
+        completed_at = None
+        if completed:
+            try:
+                completed_at = self.get_transaction(tid).get("status_updated_at")
+            except VintedError:
+                pass
+        return {
+            i: Sale(a, len(amounts), round(sum(amounts.values()), 2), completed, completed_at, int(tid), conv.get("id"))
+            for i, a in amounts.items()
+        }
 
-    def sales(self, item_ids, max_transactions: int = 40) -> dict[int, Sale]:
-        """Actual sale (amount, bundle it was sold in if any, whether the buyer
-        confirmed receipt) per item id.
+    def conversation_sales(self, conversation_id: int, wanted=None) -> dict[int, Sale]:
+        """Sales (per item id) in one conversation, read again: see sales_since."""
+        return self._conversation_sales(self.get_conversation(conversation_id), wanted)
 
-        Walks the sold orders newest first and reads each order's transaction to
-        learn which items it holds. Items sold in a bundle get a share of the
-        bundle amount proportional to their listing price (see
-        order_item_amounts). Stops when every item is found, when orders run
-        out, or after `max_transactions` transaction reads (cached ones don't
-        count; for completed orders the transaction is read again, uncached, to
-        get the completion date). Items not found are left out.
+    def sales_since(
+        self, since: Optional[str] = None, wanted=None, max_conversations: int = 50
+    ) -> tuple[dict[int, Sale], Optional[str], bool]:
+        """Sales in the conversations updated after `since` (ISO 8601; None = all).
+
+        A conversation is updated by every event of its order (sold, shipped,
+        delivered, buyer confirmed receipt), so reading only those updated since
+        the previous call is enough to follow every sale. Requests: one inbox
+        page per 100 updated conversations, one per conversation, plus one per
+        bundle (listing prices) and per completed purchase (completion date).
+
+        Conversations are read oldest first, at most `max_conversations` (never
+        splitting ones updated at the same second). Returns the sales per item
+        id (the latest conversation wins), the new `since` (updated_at of the
+        last conversation read, or `since` if none) and whether some updated
+        conversations are left for the next call.
         """
-        wanted = {int(i) for i in item_ids}
-        found: dict[int, Sale] = {}
-        reads = 0
-        page = 1
-        while wanted - found.keys():
-            orders = self.my_orders(page=page, per_page=20)
-            for o in orders:
-                tid = o.get("transaction_id")
-                if tid is None:
-                    continue
-                if int(tid) not in self._tx_items:
-                    if reads >= max_transactions:
-                        return found
-                    reads += 1
-                ids = self.transaction_item_ids(tid)
-                if any(i in wanted and i not in found for i in ids):
-                    amounts = self.order_item_amounts(o)
-                    total = round(sum(amounts.values()), 2)
-                    completed = o.get("transaction_user_status") == "completed"
-                    completed_at = None
-                    if completed and amounts:
-                        # The status changes over time: never from the cache
-                        reads += 1
-                        try:
-                            completed_at = self.get_transaction(tid).get("status_updated_at")
-                        except VintedError:
-                            pass
-                    for i, amount in amounts.items():
-                        if i in wanted and i not in found:
-                            found[i] = Sale(amount, len(amounts), total, completed, completed_at)
-                    if not wanted - found.keys():
-                        return found
-            if len(orders) < 20:
-                break
+        after = _when(since) if since else None
+        new: list[dict[str, Any]] = []
+        page, pages = 1, 1
+        while page <= pages:
+            convs, pages = self.inbox(page=page, per_page=100)
+            fresh = [c for c in convs if after is None or (_when(c.get("updated_at")) or after) > after]
+            new += fresh
+            if not convs or len(fresh) < len(convs):
+                break  # newest first: the rest is older than `since`
             page += 1
-        return found
-
+        new.sort(key=lambda c: _when(c.get("updated_at")) or datetime.min.replace(tzinfo=timezone.utc))
+        cut = min(len(new), max(1, max_conversations))
+        while 0 < cut < len(new) and new[cut].get("updated_at") == new[cut - 1].get("updated_at"):
+            cut += 1
+        found: dict[int, Sale] = {}
+        mark = since
+        for conv in new[:cut]:
+            found.update(self.conversation_sales(conv["id"], wanted))
+            mark = conv.get("updated_at") or mark
+        return found, mark, cut < len(new)
 
 def split_amount(total: float, weights: list[float]) -> Optional[list[float]]:
     """Split `total` in proportion to `weights`, to the cent, so that the parts

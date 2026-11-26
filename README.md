@@ -99,7 +99,7 @@ vinted draft --photo inbox/IMG_0001.jpg --photo inbox/IMG_0002.jpg \
 # Manage your existing live ads (read from the account, not a local file):
 vinted ads                         # list your live listings
 vinted item 9226208711             # show one ad (id or full URL)
-vinted sold --limit 10             # sold orders: day, item id, amount, status, title
+vinted sold --limit 10             # sold orders: last update, item id, amount, status, title
 
 # Edit one or many fields in a single call (only the fields you pass change;
 # photos are preserved):
@@ -128,9 +128,18 @@ excluded); the price in your wardrobe (`vinted ads`) stays the listing price.
 A bundle (several items bought together with one offer) has a single amount
 for the whole set: each item gets a share proportional to its listing price
 (e.g. `10918455820=5.47,10919496246=2.43 (bundle)` for 9 € + 4 € sold at 7.90 €).
-Vinted credits the seller only once the buyer confirms receipt: the order's
-`transaction_user_status` is then `completed` (transaction status 450).
-`client.sales()` reports it per item (`Sale.completed`, `Sale.completed_at`).
+Vinted credits the seller only once the buyer confirms receipt: the
+transaction is then `is_completed` (status 450). Orders are read from the
+inbox (`/inbox`, then `/conversations/{id}` for the transaction): the old
+`/my_orders` endpoint answers 404 since November 2026. Only the transaction
+status tells a sale (200-499; 230 sold, 450 completed): an offer (1) and an
+item bought by someone else (500) also have a `purchase_id`. Every order event
+(sold, shipped, delivered, receipt confirmed) updates its conversation, so
+`client.sales_since(since)` reads only the conversations updated after the
+previous call and reports each sale per item (`Sale.completed`,
+`Sale.completed_at`, `Sale.conversation_id`); `client.conversation_sales(id)`
+reads one conversation again. Set `client.min_interval` (seconds) to space
+the requests; `vinted sold` waits 1 s between them (`--interval`).
 
 Extra dynamic attributes (e.g. a book's `language_book`) are passed with
 `--attr CODE=VALUE` on `draft`, `edit` and `publish`; values are ids or names from
